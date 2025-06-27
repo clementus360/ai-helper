@@ -1,0 +1,22 @@
+package types
+
+import "time"
+
+// New session-related types
+type Session struct {
+	ID        string     `json:"id,omitempty"` // <-- omitempty is critical
+	UserID    string     `json:"user_id"`
+	Title     string     `json:"title"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+}
+
+type SessionContext struct {
+	Summary        string    `json:"summary"`
+	RecentMessages []Message `json:"recent_messages"`
+}
+
+type SessionSummary struct {
+	SessionID   string    `json:"session_id"`
+	Summary     string    `json:"summary"`
+	LastUpdated time.Time `json:"last_updated,omitempty"`
+}
