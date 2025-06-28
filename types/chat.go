@@ -14,7 +14,6 @@ type Message struct {
 }
 
 type ChatRequest struct {
-	UserID    string `json:"user_id"`
 	Message   string `json:"message"`
 	SessionID string `json:"session_id,omitempty"`
 }

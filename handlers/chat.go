@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 func ChatHandler(w http.ResponseWriter, r *http.Request) {
@@ -19,13 +17,8 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	if req.UserID == "" || req.Message == "" {
+	if req.Message == "" {
 		writeError(w, "Missing user_id or message", http.StatusBadRequest)
-		return
-	}
-
-	if _, err := uuid.Parse(req.UserID); err != nil {
-		writeError(w, "Invalid user_id format", http.StatusBadRequest)
 		return
 	}
 
@@ -35,7 +28,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "Missing Authorization header", http.StatusUnauthorized)
 		return
 	}
-	supabaseClient, err := supabase.SupabaseClientFromRequest(r)
+	supabaseClient, userId, err := supabase.SupabaseClientFromRequest(r)
 	if err != nil {
 		config.Logger.Error("Failed to create Supabase client:", err)
 		writeError(w, "Failed to create Supabase client", http.StatusInternalServerError)
@@ -48,7 +41,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		sessionID = req.SessionID // Use provided session
 	} else {
 		var err error
-		sessionID, err = supabase.GetOrCreateActiveSession(supabaseClient, req.UserID) // Create new one
+		sessionID, err = supabase.GetOrCreateActiveSession(supabaseClient, userId) // Create new one
 		if err != nil {
 			config.Logger.Error("Failed to get or create session:", err)
 			writeError(w, "Could not manage session", http.StatusInternalServerError)
@@ -57,7 +50,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get session context (recent messages + summary)
-	context, err := supabase.GetSessionContext(supabaseClient, sessionID, req.UserID)
+	context, err := supabase.GetSessionContext(supabaseClient, sessionID, userId)
 	if err != nil {
 		config.Logger.Warn("Failed to get session context:", err)
 		// Continue without context rather than failing
@@ -65,7 +58,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the user message to Supabase
-	if err := supabase.SaveMessage(supabaseClient, req.UserID, sessionID, "user", req.Message); err != nil {
+	if err := supabase.SaveMessage(supabaseClient, userId, sessionID, "user", req.Message); err != nil {
 		config.Logger.Error("Failed to save message:", err)
 		writeError(w, "Could not save message", http.StatusInternalServerError)
 		return
@@ -83,7 +76,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save AI response message
-	if err := supabase.SaveMessage(supabaseClient, req.UserID, sessionID, "ai", structuredResp.Response); err != nil {
+	if err := supabase.SaveMessage(supabaseClient, userId, sessionID, "ai", structuredResp.Response); err != nil {
 		config.Logger.Warn("Failed to save AI message:", err)
 	}
 
@@ -95,20 +88,20 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 				Title:       item.Title,
 				Description: item.Description,
 				Status:      "pending",
-				SessionID:   sessionID,
+				SessionID:   &sessionID,
 				AISuggested: true,
 				CreatedAt:   time.Now(),
 			})
 		}
 
-		if err := supabase.SaveTasks(supabaseClient, req.UserID, tasks); err != nil {
+		if err := supabase.SaveTasks(supabaseClient, userId, tasks); err != nil {
 			config.Logger.Warn("Failed to save AI-suggested tasks:", err)
 		}
 	}
 
 	// Check if we need to update session summary
 	go func() {
-		if err := supabase.UpdateSessionSummaryIfNeeded(supabaseClient, sessionID, req.UserID); err != nil {
+		if err := supabase.UpdateSessionSummaryIfNeeded(supabaseClient, sessionID, userId); err != nil {
 			config.Logger.Warn("Failed to update session summary:", err)
 		}
 	}()

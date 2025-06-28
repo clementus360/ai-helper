@@ -17,11 +17,12 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /chat", handlers.ChatHandler)
-	mux.HandleFunc("/tasks/decline", handlers.DeclineTaskHandler)
-	mux.HandleFunc("/tasks/accept", handlers.AcceptTaskHandler)
+	mux.HandleFunc("POST /tasks/create", handlers.CreateTaskHandler)
+	mux.HandleFunc("PATCH /tasks/update", handlers.UpdateTaskHandler)
+	mux.HandleFunc("DELETE /tasks/delete", handlers.DeleteTaskHandler)
+	mux.HandleFunc("GET /tasks", handlers.GetTasksHandler)
 	// mux.HandleFunc("GET /goals", goalsHandler)
 	// mux.HandleFunc("POST /goals", addGoalHandler)
-	// mux.HandleFunc("POST /tasks", addTaskHandler)
 	// mux.HandleFunc("GET /tasks/today", tasksHandler)
 	// mux.HandleFunc("UPDATE /tasks/{id}/status", updateTaskHandler)
 

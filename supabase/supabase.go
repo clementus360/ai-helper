@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/supabase-community/supabase-go"
 )
 
@@ -27,24 +28,42 @@ func Init() {
 	}
 }
 
-func SupabaseClientFromRequest(r *http.Request) (*supabase.Client, error) {
+func SupabaseClientFromRequest(r *http.Request) (*supabase.Client, string, error) {
 	apiURL := os.Getenv("SUPABASE_URL")
 	apiKey := os.Getenv("SUPABASE_KEY")
 
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		return nil, fmt.Errorf("missing Authorization header")
+		return nil, "", fmt.Errorf("missing Authorization header")
 	}
 
-	jwt := strings.TrimPrefix(authHeader, "Bearer ")
-	if jwt == "" {
-		return nil, fmt.Errorf("invalid Authorization header")
+	jwtString := strings.TrimPrefix(authHeader, "Bearer ")
+	if jwtString == "" {
+		return nil, "", fmt.Errorf("invalid Authorization header")
 	}
+
+	// Parse the JWT
+	token, _, err := new(jwt.Parser).ParseUnverified(jwtString, jwt.MapClaims{})
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid JWT format")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, "", fmt.Errorf("invalid JWT claims")
+	}
+
+	sub, ok := claims["sub"].(string)
+	if !ok || sub == "" {
+		return nil, "", fmt.Errorf("missing sub in token")
+	}
+
+	// fmt.Println(GenerateTestJWT(userId))
 
 	client, err := supabase.NewClient(apiURL, apiKey, &supabase.ClientOptions{
 		Headers: map[string]string{
-			"Authorization": "Bearer " + jwt,
+			"Authorization": "Bearer " + jwtString,
 		},
 	})
-	return client, err
+	return client, sub, err
 }
