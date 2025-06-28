@@ -21,10 +21,6 @@ func main() {
 	mux.HandleFunc("PATCH /tasks/update", handlers.UpdateTaskHandler)
 	mux.HandleFunc("DELETE /tasks/delete", handlers.DeleteTaskHandler)
 	mux.HandleFunc("GET /tasks", handlers.GetTasksHandler)
-	// mux.HandleFunc("GET /goals", goalsHandler)
-	// mux.HandleFunc("POST /goals", addGoalHandler)
-	// mux.HandleFunc("GET /tasks/today", tasksHandler)
-	// mux.HandleFunc("UPDATE /tasks/{id}/status", updateTaskHandler)
 
 	log.Println("Server is running on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
