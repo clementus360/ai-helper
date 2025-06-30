@@ -175,3 +175,55 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 		Execute()
 	return err
 }
+
+func GetSessions(client *supabase.Client, userID string) ([]types.Session, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("missing user ID")
+	}
+
+	query := client.From("sessions").
+		Select("*", "", false).
+		Eq("user_id", userID).
+		Order("created_at", &postgrest.OrderOpts{Ascending: false})
+
+	resp, _, err := query.Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []types.Session
+	if err := json.Unmarshal(resp, &sessions); err != nil {
+		return nil, fmt.Errorf("failed to decode session data: %w", err)
+	}
+
+	return sessions, nil
+}
+
+func UpdateSessionTitle(client *supabase.Client, sessionID, userID, newTitle string) (types.Session, error) {
+	var updated []types.Session
+
+	fmt.Printf("Updating session %s for user %s with new title: %s\n", sessionID, userID, newTitle)
+
+	resp, _, err := client.From("sessions").
+		Update(map[string]interface{}{"title": newTitle}, "", "").
+		Eq("id", sessionID).
+		Eq("user_id", userID).
+		Execute()
+
+	if err != nil {
+		fmt.Errorf("failed to update session title: %w", err)
+		return types.Session{}, err
+	}
+
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		fmt.Errorf("failed to parse update result: %w", err)
+		return types.Session{}, fmt.Errorf("failed to parse update result: %w", err)
+	}
+
+	if len(updated) == 0 {
+		fmt.Println("No session found or updated")
+		return types.Session{}, fmt.Errorf("no session found or updated")
+	}
+
+	return updated[0], nil
+}

@@ -20,3 +20,13 @@ type SessionSummary struct {
 	Summary     string    `json:"summary"`
 	LastUpdated time.Time `json:"last_updated,omitempty"`
 }
+
+type GetSessionsResponse struct {
+	Success  bool      `json:"success"`
+	Sessions []Session `json:"sessions"`
+}
+
+type SessionResponse struct {
+	Success bool    `json:"success"`
+	Session Session `json:"session"`
+}
