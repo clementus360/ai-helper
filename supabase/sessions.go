@@ -208,8 +208,6 @@ func GetSessions(client *supabase.Client, userID string) ([]types.Session, error
 func UpdateSessionTitle(client *supabase.Client, sessionID, userID, newTitle string) (types.Session, error) {
 	var updated []types.Session
 
-	fmt.Printf("Updating session %s for user %s with new title: %s\n", sessionID, userID, newTitle)
-
 	resp, _, err := client.From("sessions").
 		Update(map[string]interface{}{"title": newTitle}, "", "").
 		Eq("id", sessionID).
@@ -227,7 +225,6 @@ func UpdateSessionTitle(client *supabase.Client, sessionID, userID, newTitle str
 	}
 
 	if len(updated) == 0 {
-		fmt.Println("No session found or updated")
 		return types.Session{}, fmt.Errorf("no session found or updated")
 	}
 

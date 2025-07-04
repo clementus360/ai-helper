@@ -136,7 +136,5 @@ Return ONLY valid JSON, nothing else. Your success is measured by whether people
 	// Final user message
 	finalInput := fmt.Sprintf("User said: %s", userMessage)
 
-	fmt.Println("Final prompt being built:", systemInstructions+summarySection+conversationLog+"\n\n"+finalInput)
-
 	return systemInstructions + summarySection + conversationLog + "\n\n" + finalInput
 }

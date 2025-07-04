@@ -85,9 +85,6 @@ func UpdateTask(client *supabase.Client, taskID, userID string, updates map[stri
 		return types.Task{}, fmt.Errorf("empty update payload")
 	}
 
-	fmt.Println("Updating task:", taskID, "for user:", userID)
-	fmt.Println("Update payload:", updates)
-
 	// Update and return the updated row
 	resp, _, err := client.
 		From("tasks").
@@ -97,11 +94,8 @@ func UpdateTask(client *supabase.Client, taskID, userID string, updates map[stri
 		Execute() // Don't use Single()
 
 	if err != nil {
-		fmt.Printf("Update error: %v\n", err)
 		return types.Task{}, err
 	}
-
-	fmt.Printf("Update response: %s\n", string(resp))
 
 	var updated []types.Task
 	if err := json.Unmarshal(resp, &updated); err != nil {
@@ -181,8 +175,6 @@ func GetSingleTask(client *supabase.Client, userID, taskID string) ([]types.Task
 	if err != nil {
 		return []types.Task{}, err
 	}
-
-	fmt.Println(resp)
 
 	var task []types.Task
 	if err := json.Unmarshal(resp, &task); err != nil {

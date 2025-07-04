@@ -58,8 +58,6 @@ func SupabaseClientFromRequest(r *http.Request) (*supabase.Client, string, error
 		return nil, "", fmt.Errorf("missing sub in token")
 	}
 
-	// fmt.Println(GenerateTestJWT(userId))
-
 	client, err := supabase.NewClient(apiURL, apiKey, &supabase.ClientOptions{
 		Headers: map[string]string{
 			"Authorization": "Bearer " + jwtString,
