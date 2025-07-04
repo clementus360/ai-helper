@@ -16,6 +16,7 @@ type Message struct {
 type ChatRequest struct {
 	Message   string `json:"message"`
 	SessionID string `json:"session_id,omitempty"`
+	ForceNew  bool   `json:"force_new,omitempty"` // if true, create a new session even if one exists
 }
 
 type ChatResponse struct {
@@ -25,4 +26,9 @@ type ChatResponse struct {
 	ActionItems  []Task `json:"action_items,omitempty"` // future task suggestions
 	ErrorMessage string `json:"error,omitempty"`        // only set on failure
 	SessionID    string `json:"session_id"`
+}
+
+type GetMessagesResponse struct {
+	Success  bool      `json:"success"`
+	Messages []Message `json:"messages"`
 }

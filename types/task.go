@@ -39,6 +39,13 @@ type GetTasksResponse struct {
 	ErrorMessage string `json:"error,omitempty"`  // Only set on failure
 }
 
+type GetSingleTaskResponse struct {
+	Success      bool   `json:"success"`
+	Task         []Task `json:"task,omitempty"`
+	Total        int    `json:"total,omitempty"` // Optional: total count for pagination
+	ErrorMessage string `json:"error,omitempty"` // Only set on failure
+}
+
 type SupabaseGetTasksResponse struct {
 	Data  []Task `json:"data"`
 	Count int64  `json:"count"`

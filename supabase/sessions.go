@@ -19,7 +19,7 @@ const (
 )
 
 // GetOrCreateActiveSession returns recent session ID or creates a new session
-func GetOrCreateActiveSession(client *supabase.Client, userID string) (string, error) {
+func GetOrCreateActiveSession(client *supabase.Client, userID string, forceNew bool) (string, error) {
 	cutoff := time.Now().Add(-24 * time.Hour)
 	var sessions []types.Session
 
@@ -38,8 +38,14 @@ func GetOrCreateActiveSession(client *supabase.Client, userID string) (string, e
 	if err := json.Unmarshal(resp, &sessions); err != nil {
 		return "", err
 	}
-	if len(sessions) > 0 {
-		return sessions[0].ID, nil
+
+	// If forceNew is false and we have recent sessions, return the first one
+	// This allows us to reuse existing sessions without creating new ones
+	// unless the user explicitly requests a new session
+	if !forceNew {
+		if len(sessions) > 0 {
+			return sessions[0].ID, nil
+		}
 	}
 
 	// Create new session

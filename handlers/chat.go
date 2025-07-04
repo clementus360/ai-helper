@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func ChatHandler(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +43,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		sessionID = req.SessionID // Use provided session
 	} else {
 		var err error
-		sessionID, err = supabase.GetOrCreateActiveSession(supabaseClient, userId) // Create new one
+		sessionID, err = supabase.GetOrCreateActiveSession(supabaseClient, userId, req.ForceNew) // Create new one
 		if err != nil {
 			config.Logger.Error("Failed to get or create session:", err)
 			writeError(w, "Could not manage session", http.StatusInternalServerError)
@@ -116,4 +118,41 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func GetMessagesHandler(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		writeError(w, "Missing session_id", http.StatusBadRequest)
+		return
+	}
+	if _, err := uuid.Parse(sessionID); err != nil {
+		writeError(w, "Invalid session_id", http.StatusBadRequest)
+		return
+	}
+
+	// Auth check
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		writeError(w, "Missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+	// Create Supabase client
+	client, userID, err := supabase.SupabaseClientFromRequest(r)
+	if err != nil {
+		writeError(w, "Failed to create Supabase client", http.StatusInternalServerError)
+		return
+	}
+
+	messages, err := supabase.GetMessages(client, sessionID, userID)
+	if err != nil {
+		config.Logger.Error("Failed to fetch messages:", err)
+		writeError(w, "Could not fetch messages", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, types.GetMessagesResponse{
+		Success:  true,
+		Messages: messages,
+	})
 }

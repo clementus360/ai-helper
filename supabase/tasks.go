@@ -165,3 +165,29 @@ func GetTasks(client *supabase.Client, userID, sessionID, status string, limit, 
 
 	return tasks, count, nil
 }
+
+// GetTasks retrieves one task for a user
+func GetSingleTask(client *supabase.Client, userID, taskID string) ([]types.Task, error) {
+	if userID == "" {
+		return []types.Task{}, fmt.Errorf("missing user ID")
+	}
+
+	query := client.From("tasks").
+		Select("*", "exact", false).
+		Eq("user_id", userID).
+		Eq("id", taskID)
+
+	resp, _, err := query.Execute()
+	if err != nil {
+		return []types.Task{}, err
+	}
+
+	fmt.Println(resp)
+
+	var task []types.Task
+	if err := json.Unmarshal(resp, &task); err != nil {
+		return []types.Task{}, fmt.Errorf("failed to decode task data: %w", err)
+	}
+
+	return task, nil
+}

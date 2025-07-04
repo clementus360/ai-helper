@@ -185,3 +185,29 @@ func GetTasksHandler(w http.ResponseWriter, r *http.Request) {
 		Total:   int(total),
 	})
 }
+
+// get a single task by ID
+func GetSingleTaskHandler(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	taskID := q.Get("id")
+
+	supabaseClient, userId, err := supabase.SupabaseClientFromRequest(r)
+	if err != nil {
+		config.Logger.Error("Failed to create Supabase client:", err)
+		writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	task, err := supabase.GetSingleTask(supabaseClient, userId, taskID)
+	if err != nil {
+		config.Logger.Error("Failed to fetch tasks:", err)
+		writeError(w, "Failed to fetch task", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, types.GetSingleTaskResponse{
+		Success: true,
+		Task:    task,
+	})
+}
