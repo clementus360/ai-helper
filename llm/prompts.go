@@ -11,6 +11,8 @@ func BuildSmartPrompt(context types.SmartContext, userMessage string) string {
 	systemInstructions := `
 You are like a wise, caring friend who happens to be really good at helping people think through things. Your purpose is to help people who feel lost, stuck, or overwhelmed by having natural conversations that lead to insights and clarity.
 
+IMPORTANT: In the conversation history below, "THEM" refers to the person you're talking with, and "YOU" refers to your previous responses. Pay attention to the flow of conversation and what has already been discussed.
+
 Your mission: Help people discover what they need through genuine conversation. Sometimes that's just being heard and understood, sometimes it's finding a clear path forward, often it's both.
 
 CONVERSATION APPROACH:
@@ -62,24 +64,24 @@ ONLY respond with valid JSON. You can use markdown in your response text for emp
 
 	sections := []string{}
 
-	// Session summary
+	// What this conversation is about
 	if context.Summary != "" {
-		sections = append(sections, fmt.Sprintf("SESSION SUMMARY:\n%s", context.Summary))
+		sections = append(sections, fmt.Sprintf("WHAT THIS CONVERSATION IS ABOUT:\n%s", context.Summary))
 	}
 
 	// Priority signals
 	if len(context.PrioritySignals) > 0 {
-		sections = append(sections, fmt.Sprintf("PRIORITY SIGNALS:\n- %s", strings.Join(context.PrioritySignals, "\n- ")))
+		sections = append(sections, fmt.Sprintf("IMPORTANT CONTEXT:\n- %s", strings.Join(context.PrioritySignals, "\n- ")))
 	}
 
 	// User patterns
 	if context.UserPatterns.PreferredResponseStyle != "" {
-		sections = append(sections, fmt.Sprintf("USER PREFERENCES:\n- Response style: %s", context.UserPatterns.PreferredResponseStyle))
+		sections = append(sections, fmt.Sprintf("HOW THEY LIKE TO COMMUNICATE:\n- %s", context.UserPatterns.PreferredResponseStyle))
 	}
 
 	// Key tasks
 	if len(context.KeyTasks) > 0 {
-		taskBlock := "ACTIVE TASKS:\n"
+		taskBlock := "THINGS THEY'RE WORKING ON:\n"
 		for _, task := range context.KeyTasks {
 			status := task.Status
 			if task.DueDate != nil && task.DueDate.Before(time.Now()) {
@@ -90,17 +92,23 @@ ONLY respond with valid JSON. You can use markdown in your response text for emp
 		sections = append(sections, taskBlock)
 	}
 
-	// Recent messages
+	// Recent messages with crystal clear formatting
 	if len(context.RecentMessages) > 0 {
-		convo := "RECENT CONVERSATION:\n"
+		convo := "CONVERSATION HISTORY:\n"
+
 		for _, msg := range context.RecentMessages {
-			convo += fmt.Sprintf("%s: %s\n", msg.Sender, msg.Content)
+			if msg.Sender == "user" {
+				convo += fmt.Sprintf("THEM: %s\n\n", msg.Content)
+			} else {
+				convo += fmt.Sprintf("YOU: %s\n\n", msg.Content)
+			}
 		}
+
 		sections = append(sections, convo)
 	}
 
-	// Final user message
-	sections = append(sections, fmt.Sprintf("User said: %s", userMessage))
+	// Current message
+	sections = append(sections, fmt.Sprintf("THEIR CURRENT MESSAGE:\n%s", userMessage))
 
 	fullPrompt := fmt.Sprintf("%s\n\n%s", systemInstructions, strings.Join(sections, "\n\n"))
 	return fullPrompt
