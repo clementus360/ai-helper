@@ -263,7 +263,7 @@ Summary:`, chatLog.String())
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Gemini API error: %s", resp.Status)
+		return "", fmt.Errorf("gemini API error: %s", resp.Status)
 	}
 
 	var result map[string]interface{}
@@ -281,6 +281,68 @@ Summary:`, chatLog.String())
 	text := parts[0].(map[string]interface{})["text"].(string)
 
 	return strings.TrimSpace(text), nil
+}
+
+// GenerateSessionTitle uses Gemini to suggest a short title for a session
+func GenerateSessionTitle(context types.SmartContext) (string, error) {
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("GEMINI_API_KEY not set")
+	}
+
+	prompt := fmt.Sprintf(`Based on this conversation, suggest a short, clear session title that summarizes the user's goal or issue in less than 8 words.
+
+Conversation context:
+%s
+
+Respond only with the title.`, BuildSmartPrompt(context, ""))
+
+	body := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{"parts": []map[string]string{{"text": prompt}}},
+		},
+		"generationConfig": map[string]interface{}{
+			"temperature":     0.3,
+			"maxOutputTokens": 50,
+			"topP":            0.8,
+		},
+	}
+
+	jsonData, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", apiURL+"?key="+apiKey, bytes.NewReader(jsonData))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("gemini API error %d", resp.StatusCode)
+	}
+
+	var res map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+
+	text, err := extractTextFromResponse(res)
+	if err != nil {
+		return "", err
+	}
+
+	title := strings.TrimSpace(text)
+	title = strings.Trim(title, `"'`)
+	if len(title) == 0 {
+		return "", fmt.Errorf("empty title response")
+	}
+
+	return title, nil
 }
 
 // Backward compatibility wrapper
