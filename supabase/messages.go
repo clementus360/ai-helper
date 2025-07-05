@@ -43,3 +43,26 @@ func GetMessages(client *supabase.Client, sessionID, userID string) ([]types.Mes
 
 	return messages, nil
 }
+
+func GetRecentMessages(client *supabase.Client, sessionID, userID string, limit int) ([]types.Message, error) {
+	var messages []types.Message
+
+	query := client.
+		From("messages").
+		Select("sender, content, created_at, session_id", "", false).
+		Eq("user_id", userID).
+		Eq("session_id", sessionID).
+		Order("created_at", &postgrest.OrderOpts{Ascending: false}).
+		Limit(limit, "") // Get double to allow for filtering
+
+	data, _, err := query.Execute()
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(data, &messages)
+	if err != nil {
+		return nil, err
+	}
+
+	return messages, nil
+}

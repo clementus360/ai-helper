@@ -5,8 +5,10 @@ import (
 	"clementus360/ai-helper/supabase"
 	"clementus360/ai-helper/types"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -45,6 +47,27 @@ func CreateTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track task creation activity
+	sessionID := ""
+	if savedTask.SessionID != nil {
+		sessionID = *savedTask.SessionID
+	}
+
+	go func() {
+		if err := supabase.TrackUserActivity(supabaseClient, userId, sessionID, "task_created", savedTask.Title, map[string]interface{}{
+			"task_id":      savedTask.ID,
+			"ai_suggested": false,
+			"has_due_date": savedTask.DueDate != nil,
+		}); err != nil {
+			config.Logger.Warn("TrackUserActivity failed:", err)
+		}
+	}()
+
+	// Update session metrics
+	if sessionID != "" {
+		go supabase.IncrementSessionCounter(supabaseClient, sessionID, "task_created")
+	}
+
 	writeJSON(w, http.StatusCreated, types.TaskResponse{
 		Success: true,
 		Task:    savedTask,
@@ -61,7 +84,7 @@ func DeleteTaskHandler(w http.ResponseWriter, r *http.Request) {
 	taskID := query.Get("id")
 
 	if taskID == "" {
-		writeError(w, "Missing task ID or user ID", http.StatusBadRequest)
+		writeError(w, "Missing task ID", http.StatusBadRequest)
 		return
 	}
 
@@ -72,11 +95,30 @@ func DeleteTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Attempt to fetch task to get session ID before deletion
+	var sessionID string
+	tasks, err := supabase.GetSingleTask(supabaseClient, userId, taskID)
+	if err != nil {
+		config.Logger.Warn("Failed to fetch task before deletion:", err)
+	} else if len(tasks) > 0 && tasks[0].SessionID != nil {
+		sessionID = *tasks[0].SessionID
+	}
+
 	if err := supabase.DeleteTask(supabaseClient, taskID, userId); err != nil {
 		config.Logger.Error("Failed to delete task:", err)
 		writeError(w, "Could not delete task", http.StatusInternalServerError)
 		return
 	}
+
+	// Track task deletion
+	go func() {
+		err := supabase.TrackUserActivity(supabaseClient, userId, sessionID, "task_deleted", fmt.Sprintf("Deleted task %s", taskID), map[string]interface{}{
+			"task_id": taskID,
+		})
+		if err != nil {
+			config.Logger.Warn("TrackUserActivity failed:", err)
+		}
+	}()
 
 	writeJSON(w, http.StatusOK, types.DeleteTaskResponse{
 		Success:      true,
@@ -122,6 +164,39 @@ func UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
 			ErrorMessage: err.Error(),
 		})
 		return
+	}
+
+	// Track task update activity
+	sessionID := ""
+	if updatedTask.SessionID != nil {
+		sessionID = *updatedTask.SessionID
+	}
+
+	go func() {
+		if err := supabase.TrackUserActivity(client, userID, sessionID, "task_updated", updatedTask.Title, map[string]interface{}{
+			"task_id": updatedTask.ID,
+			"updates": updates,
+			"status":  updatedTask.Status,
+		}); err != nil {
+			config.Logger.Warn("TrackUserActivity failed:", err)
+		}
+	}()
+
+	// Special tracking for task completion
+	if status, ok := updates["status"]; ok && status == "completed" {
+		go func() {
+			if err := supabase.TrackUserActivity(client, userID, sessionID, "task_completed", updatedTask.Title, map[string]interface{}{
+				"task_id":         updatedTask.ID,
+				"completion_time": time.Now(),
+			}); err != nil {
+				config.Logger.Warn("TrackUserActivity failed:", err)
+			}
+		}()
+
+		// Update session metrics
+		if sessionID != "" {
+			go supabase.IncrementSessionCounter(client, sessionID, "task_completed")
+		}
 	}
 
 	writeJSON(w, http.StatusOK, types.TaskResponse{

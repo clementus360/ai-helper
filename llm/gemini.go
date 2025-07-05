@@ -24,7 +24,7 @@ type GeminiTaskItem struct {
 	Description string `json:"description"`
 }
 
-func GeminiGenerateResponse(userInput string, context types.SessionContext) (GeminiStructuredResponse, error) {
+func GeminiGenerateResponse(userInput string, context types.SmartContext) (GeminiStructuredResponse, error) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		return GeminiStructuredResponse{}, fmt.Errorf("GEMINI_API_KEY not set")
@@ -38,7 +38,11 @@ func GeminiGenerateResponse(userInput string, context types.SessionContext) (Gem
 		}, nil
 	}
 
-	prompt := BuildPrompt(context, userInput)
+	// Trim context to fit token limits
+	trimmedContext := TrimContextForTokens(context, 6000)
+
+	// Build enhanced prompt
+	prompt := BuildSmartPrompt(trimmedContext, userInput)
 
 	// Enhanced request body with generation config for more consistent JSON
 	body := map[string]interface{}{
@@ -245,7 +249,7 @@ Summary:`, chatLog.String())
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro:generateContent?key="+apiKey, bytes.NewReader(jsonData))
+	req, err := http.NewRequest("POST", apiURL+"?key="+apiKey, bytes.NewReader(jsonData))
 	if err != nil {
 		return "", err
 	}
@@ -277,4 +281,14 @@ Summary:`, chatLog.String())
 	text := parts[0].(map[string]interface{})["text"].(string)
 
 	return strings.TrimSpace(text), nil
+}
+
+// Backward compatibility wrapper
+func GeminiGenerateResponseCompat(userMessage string, context types.SessionContext) (GeminiStructuredResponse, error) {
+	smartContext := types.SmartContext{
+		Summary:        context.Summary,
+		RecentMessages: context.RecentMessages,
+	}
+
+	return GeminiGenerateResponse(userMessage, smartContext)
 }

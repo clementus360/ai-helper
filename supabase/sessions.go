@@ -172,6 +172,7 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 
 	data := types.SessionSummary{
 		SessionID:   sessionID,
+		UserID:      userID,
 		Summary:     summary,
 		LastUpdated: time.Now(),
 	}
@@ -215,12 +216,10 @@ func UpdateSessionTitle(client *supabase.Client, sessionID, userID, newTitle str
 		Execute()
 
 	if err != nil {
-		fmt.Errorf("failed to update session title: %w", err)
-		return types.Session{}, err
+		return types.Session{}, fmt.Errorf("failed to update session title: %w", err)
 	}
 
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		fmt.Errorf("failed to parse update result: %w", err)
 		return types.Session{}, fmt.Errorf("failed to parse update result: %w", err)
 	}
 

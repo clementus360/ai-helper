@@ -10,13 +10,9 @@ type Session struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 }
 
-type SessionContext struct {
-	Summary        string    `json:"summary"`
-	RecentMessages []Message `json:"recent_messages"`
-}
-
 type SessionSummary struct {
 	SessionID   string    `json:"session_id"`
+	UserID      string    `json:"user_id"`
 	Summary     string    `json:"summary"`
 	LastUpdated time.Time `json:"last_updated,omitempty"`
 }

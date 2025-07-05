@@ -6,6 +6,7 @@ import (
 	"clementus360/ai-helper/supabase"
 	"clementus360/ai-helper/types"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -51,38 +52,61 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get session context (recent messages + summary)
-	context, err := supabase.GetSessionContext(supabaseClient, sessionID, userId)
+	// Get SMART context instead of basic context
+	smartContext, err := supabase.BuildSmartContext(supabaseClient, sessionID, userId)
 	if err != nil {
-		config.Logger.Warn("Failed to get session context:", err)
-		// Continue without context rather than failing
-		context = types.SessionContext{}
+		config.Logger.Warn("Failed to get smart context:", err)
+		// Continue with basic context as fallback
+		basicContext, _ := supabase.GetSessionContext(supabaseClient, sessionID, userId)
+		smartContext = types.SmartContext{
+			Summary:        basicContext.Summary,
+			RecentMessages: basicContext.RecentMessages,
+		}
 	}
 
-	// Save the user message to Supabase
+	// Track user message activity
+	go func() {
+		if err := supabase.TrackUserActivity(supabaseClient, userId, sessionID, "message", req.Message, map[string]interface{}{
+			"message_length": len(req.Message),
+			"timestamp":      time.Now(),
+		}); err != nil {
+			config.Logger.Warn("TrackUserActivity failed:", err)
+		}
+	}()
+
+	// Save the user message
 	if err := supabase.SaveMessage(supabaseClient, userId, sessionID, "user", req.Message); err != nil {
 		config.Logger.Error("Failed to save message:", err)
 		writeError(w, "Could not save message", http.StatusInternalServerError)
 		return
 	}
 
-	// Generate AI response with fallback
-	structuredResp, err := llm.GeminiGenerateResponse(req.Message, context)
+	// Generate AI response with enhanced context
+	structuredResp, err := llm.GeminiGenerateResponse(req.Message, smartContext)
 	if err != nil {
 		config.Logger.Error("Failed to get AI response:", err)
-		// Fallback response instead of hard failure
 		structuredResp = llm.GeminiStructuredResponse{
 			Response:    "I'm having trouble processing that right now. Could you rephrase what you're struggling with?",
 			ActionItems: []llm.GeminiTaskItem{},
 		}
 	}
 
-	// Save AI response message
+	// Save AI response
 	if err := supabase.SaveMessage(supabaseClient, userId, sessionID, "ai", structuredResp.Response); err != nil {
 		config.Logger.Warn("Failed to save AI message:", err)
 	}
 
-	// ✅ Save action items if any
+	// Track AI response activity
+	go func() {
+		if err := supabase.TrackUserActivity(supabaseClient, userId, sessionID, "ai_response", structuredResp.Response, map[string]interface{}{
+			"response_length":    len(structuredResp.Response),
+			"action_items_count": len(structuredResp.ActionItems),
+		}); err != nil {
+			config.Logger.Warn("TrackUserActivity failed:", err)
+		}
+	}()
+
+	// Save action items and track activity
 	var tasks []types.Task
 	if len(structuredResp.ActionItems) > 0 {
 		for _, item := range structuredResp.ActionItems {
@@ -95,26 +119,32 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:   time.Now(),
 			})
 		}
-
 		if err := supabase.SaveTasks(supabaseClient, userId, tasks); err != nil {
 			config.Logger.Warn("Failed to save AI-suggested tasks:", err)
+		} else {
+			// Track task creation activity
+			go supabase.TrackUserActivity(supabaseClient, userId, sessionID, "tasks_created", fmt.Sprintf("Created %d AI-suggested tasks", len(tasks)), map[string]interface{}{
+				"task_count":   len(tasks),
+				"ai_suggested": true,
+			})
 		}
 	}
 
-	// Check if we need to update session summary
+	// Update session metrics asynchronously
 	go func() {
+		supabase.IncrementSessionCounter(supabaseClient, sessionID, "message")
 		if err := supabase.UpdateSessionSummaryIfNeeded(supabaseClient, sessionID, userId); err != nil {
 			config.Logger.Warn("Failed to update session summary:", err)
 		}
 	}()
 
-	// Send structured response to frontend
+	// Send response
 	resp := types.ChatResponse{
 		Success:     true,
 		UserMessage: req.Message,
 		AIResponse:  structuredResp.Response,
 		ActionItems: tasks,
-		SessionID:   sessionID, // Include session ID in response
+		SessionID:   sessionID,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
