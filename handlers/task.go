@@ -65,7 +65,11 @@ func CreateTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Update session metrics
 	if sessionID != "" {
-		go supabase.IncrementSessionCounter(supabaseClient, sessionID, "task_created")
+		go func() {
+			if err := supabase.IncrementSessionCounter(supabaseClient, sessionID, "task_created"); err != nil {
+				config.Logger.Warn("Failed to incemment session counter:", err)
+			}
+		}()
 	}
 
 	writeJSON(w, http.StatusCreated, types.TaskResponse{
@@ -195,7 +199,11 @@ func UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Update session metrics
 		if sessionID != "" {
-			go supabase.IncrementSessionCounter(client, sessionID, "task_completed")
+			go func() {
+				if err := supabase.IncrementSessionCounter(client, sessionID, "task_completed"); err != nil {
+					config.Logger.Warn("Failed to incemment session counter:", err)
+				}
+			}()
 		}
 	}
 

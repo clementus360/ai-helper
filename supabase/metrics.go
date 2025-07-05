@@ -71,30 +71,10 @@ func UpdateSessionMetrics(client *supabase.Client, sessionID string, updates map
 
 // Increment session metric counters
 func IncrementSessionCounter(client *supabase.Client, sessionID, counterType string) error {
-	// This would use a stored procedure or raw SQL for atomic increment
-	// For now, we'll do a simple update
-	var field string
-	switch counterType {
-	case "message":
-		field = "message_count"
-	case "task_created":
-		field = "tasks_created"
-	case "task_completed":
-		field = "tasks_completed"
-	default:
-		return fmt.Errorf("unknown counter type: %s", counterType)
-	}
-
 	// Using raw SQL for atomic increment
-	query := fmt.Sprintf(`
-		UPDATE session_metrics 
-		SET %s = %s + 1, updated_at = NOW(), last_active_at = NOW()
-		WHERE session_id = $1
-	`, field, field)
-
-	err := client.Rpc("exec_sql", "", map[string]interface{}{
-		"query":  query,
-		"params": []interface{}{sessionID},
+	err := client.Rpc("increment_session_counter", "", map[string]interface{}{
+		"input_session_id": sessionID,
+		"input_counter":    counterType,
 	})
 
 	if err != "" {

@@ -3,13 +3,14 @@ package supabase
 import (
 	"clementus360/ai-helper/types"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/supabase-community/postgrest-go"
 	"github.com/supabase-community/supabase-go"
 )
 
-func SaveMessage(client *supabase.Client, userID, sessionID, sender, content string) error {
+func SaveMessage(client *supabase.Client, userID, sessionID, sender, content string) (string, error) {
 	message := types.Message{
 		UserID:    userID,
 		SessionID: sessionID,
@@ -18,8 +19,24 @@ func SaveMessage(client *supabase.Client, userID, sessionID, sender, content str
 		CreatedAt: time.Now(),
 	}
 
-	_, _, err := client.From("messages").Insert(message, false, "", "", "").Execute()
-	return err
+	var inserted []types.Message
+
+	resp, _, err := client.From("messages").
+		Insert(message, false, "return=representation", "", "").Execute()
+
+	if err != nil {
+		return "", err
+	}
+
+	if err := json.Unmarshal(resp, &inserted); err != nil {
+		return "", err
+	}
+
+	if len(inserted) == 0 || inserted[0].ID == "" {
+		return "", fmt.Errorf("message insert succeeded but no ID returned")
+	}
+
+	return inserted[0].ID, nil
 }
 
 func GetMessages(client *supabase.Client, sessionID, userID string) ([]types.Message, error) {

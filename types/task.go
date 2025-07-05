@@ -5,7 +5,8 @@ import "time"
 type Task struct {
 	ID            string     `json:"id,omitempty"`
 	UserID        string     `json:"user_id"`
-	GoalID        *string    `json:"goal_id,omitempty"` // nullable
+	GoalID        *string    `json:"goal_id,omitempty"`    // nullable
+	MessageID     *string    `json:"message_id,omitempty"` // nullable, for task association with messages
 	Title         string     `json:"title"`
 	Description   string     `json:"description"` // <-- new field
 	Status        string     `json:"status"`
