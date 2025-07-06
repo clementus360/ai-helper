@@ -141,6 +141,51 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Handle task deletions (assistant-initiated)
+	if len(structuredResp.DeleteTasks) > 0 {
+		go func() {
+			for _, taskID := range structuredResp.DeleteTasks {
+				if err := supabase.DeleteTask(supabaseClient, taskID, userId); err != nil {
+					config.Logger.Warn("Failed to delete assistant-suggested task:", err)
+				}
+			}
+			_ = supabase.TrackUserActivity(supabaseClient, userId, sessionID, "tasks_deleted", "Assistant deleted tasks", map[string]interface{}{
+				"deleted_count": len(structuredResp.DeleteTasks),
+			})
+		}()
+	}
+
+	// Handle task updates (assistant-initiated)
+	if len(structuredResp.UpdateTasks) > 0 {
+		go func() {
+			updatedCount := 0
+			for _, update := range structuredResp.UpdateTasks {
+				payload := map[string]interface{}{}
+				if update.Title != "" {
+					payload["title"] = update.Title
+				}
+				if update.Description != "" {
+					payload["description"] = update.Description
+				}
+				if update.Status != "" {
+					payload["status"] = update.Status
+				}
+				if len(payload) > 0 {
+					if _, err := supabase.UpdateTask(supabaseClient, update.ID, userId, payload); err != nil {
+						config.Logger.Warn("Failed to update assistant-suggested task:", err)
+					} else {
+						updatedCount++
+					}
+				}
+			}
+			if updatedCount > 0 {
+				_ = supabase.TrackUserActivity(supabaseClient, userId, sessionID, "tasks_updated", "Assistant updated tasks", map[string]interface{}{
+					"updated_count": updatedCount,
+				})
+			}
+		}()
+	}
+
 	// Update session metrics asynchronously
 	go func() {
 		if err := supabase.IncrementSessionCounter(supabaseClient, sessionID, "message"); err != nil {

@@ -74,21 +74,11 @@ func GetSessionContext(client *supabase.Client, sessionID, userID string) (types
 	context := types.SessionContext{}
 
 	// Get session summary (non-critical, log but don't fail)
-	summaryResp, _, err := client.From("session_summaries").
-		Select("summary", "", false).
-		Eq("session_id", sessionID).
-		Execute()
-
+	summary, err := GetSessionSummary(client, sessionID)
 	if err != nil {
-		log.Printf("Failed to fetch session summary for session %s: %v", sessionID, err)
-	} else {
-		var summaries []types.SessionSummary
-		if err := json.Unmarshal(summaryResp, &summaries); err != nil {
-			log.Printf("Failed to unmarshal session summary: %v", err)
-		} else if len(summaries) > 0 {
-			context.Summary = summaries[0].Summary
-		}
+		log.Printf("Failed to fetch session summary: %v", err)
 	}
+	context.Summary = summary
 
 	// Get recent messages (critical)
 	msgsResp, _, err := client.From("messages").
@@ -247,6 +237,27 @@ func GetSessions(client *supabase.Client, userID string) ([]types.Session, error
 	}
 
 	return sessions, nil
+}
+
+func GetSessionSummary(client *supabase.Client, sessionID string) (string, error) {
+	summaryResp, _, err := client.From("session_summaries").
+		Select("summary", "", false).
+		Eq("session_id", sessionID).
+		Execute()
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch session summary: %w", err)
+	}
+
+	var summaries []types.SessionSummary
+	if err := json.Unmarshal(summaryResp, &summaries); err != nil {
+		return "", fmt.Errorf("failed to unmarshal session summary: %w", err)
+	}
+
+	if len(summaries) == 0 {
+		return "", nil // No summary yet
+	}
+
+	return summaries[0].Summary, nil
 }
 
 func UpdateSessionTitle(client *supabase.Client, sessionID, userID, newTitle string) (types.Session, error) {

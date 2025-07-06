@@ -3,6 +3,8 @@ package supabase
 import (
 	"clementus360/ai-helper/types"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/supabase-community/supabase-go"
 )
@@ -12,7 +14,7 @@ func BuildSmartContext(client *supabase.Client, sessionID, userID string) (types
 	context := types.SmartContext{}
 
 	// 1. Get session summary (existing function)
-	summary, err := getSessionSummary(client, sessionID)
+	summary, err := GetSessionSummary(client, sessionID)
 	if err != nil {
 		// Log but don't fail
 		fmt.Printf("Warning: Could not fetch session summary: %v\n", err)
@@ -53,12 +55,6 @@ func BuildSmartContext(client *supabase.Client, sessionID, userID string) (types
 	return context, nil
 }
 
-// Helper functions (internal to this package)
-func getSessionSummary(client *supabase.Client, sessionID string) (string, error) {
-	// Your existing summary logic
-	return "", nil
-}
-
 func getRecentMessagesWithPriority(client *supabase.Client, sessionID, userID string, limit int) ([]types.Message, error) {
 	// Get more messages than needed for filtering
 	messages, err := GetRecentMessages(client, sessionID, userID, limit*2)
@@ -71,18 +67,46 @@ func getRecentMessagesWithPriority(client *supabase.Client, sessionID, userID st
 }
 
 func getKeyTasks(client *supabase.Client, sessionID, userID string) ([]types.Task, error) {
-	// Your existing task fetching logic with priority filtering
-	return nil, nil
+	// Only fetch pending tasks for this session to keep context concise
+	tasks, _, err := GetTasks(client, userID, sessionID, "pending", 10, 0, "", "due_date", "asc")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get key tasks: %w", err)
+	}
+	return tasks, nil
 }
 
 func prioritizeMessages(messages []types.Message, limit int) []types.Message {
-	if len(messages) <= limit {
-		return messages
+	type ScoredMessage struct {
+		Message types.Message
+		Score   int
 	}
 
-	// Score and sort messages by importance
-	// Implementation depends on your specific scoring algorithm
-	return messages[:limit]
+	var scored []ScoredMessage
+	for _, msg := range messages {
+		score := 0
+		if msg.Sender == "user" && len(msg.Content) > 80 {
+			score += 2
+		}
+		if msg.Sender == "ai" && strings.Contains(msg.Content, "task") {
+			score += 2
+		}
+		if msg.Sender == "user" && strings.Contains(msg.Content, "?") {
+			score++
+		}
+		scored = append(scored, ScoredMessage{Message: msg, Score: score})
+	}
+
+	// Sort by score desc
+	slices.SortFunc(scored, func(a, b ScoredMessage) int {
+		return b.Score - a.Score
+	})
+
+	// Return top N messages
+	var prioritized []types.Message
+	for i := 0; i < limit && i < len(scored); i++ {
+		prioritized = append(prioritized, scored[i].Message)
+	}
+	return prioritized
 }
 
 func generatePrioritySignals(context types.SmartContext) []string {

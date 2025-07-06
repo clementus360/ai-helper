@@ -15,8 +15,17 @@ import (
 const apiURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 type GeminiStructuredResponse struct {
-	Response    string           `json:"response"`
-	ActionItems []GeminiTaskItem `json:"action_items"`
+	Response    string             `json:"response"`
+	ActionItems []GeminiTaskItem   `json:"action_items"`
+	DeleteTasks []string           `json:"delete_tasks,omitempty"`
+	UpdateTasks []GeminiTaskUpdate `json:"update_tasks,omitempty"`
+}
+
+type GeminiTaskUpdate struct {
+	ID          string `json:"id"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status,omitempty"`
 }
 
 type GeminiTaskItem struct {
