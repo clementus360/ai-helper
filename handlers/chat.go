@@ -141,25 +141,77 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Handle task deletions (assistant-initiated)
+	// After getting smartContext, add validation data:
+	keyTasks := smartContext.KeyTasks // You already have this in smartContext
+
+	// Replace your task deletion section with:
 	if len(structuredResp.DeleteTasks) > 0 {
 		go func() {
+			deletedCount := 0
 			for _, taskID := range structuredResp.DeleteTasks {
+				// Add validation
+				if taskID == "" {
+					config.Logger.Warn("Empty task ID in delete request")
+					continue
+				}
+
+				// Verify task belongs to user by checking if it's in keyTasks
+				found := false
+				for _, task := range keyTasks {
+					if task.ID == taskID {
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					config.Logger.Warn("Attempted to delete non-existent or unauthorized task:", taskID)
+					continue
+				}
+
 				if err := supabase.DeleteTask(supabaseClient, taskID, userId); err != nil {
-					config.Logger.Warn("Failed to delete assistant-suggested task:", err)
+					config.Logger.Warn("Failed to delete assistant-suggested task:", taskID, "error:", err)
+				} else {
+					deletedCount++
+					config.Logger.Info("AI successfully deleted task:", taskID)
 				}
 			}
-			_ = supabase.TrackUserActivity(supabaseClient, userId, sessionID, "tasks_deleted", "Assistant deleted tasks", map[string]interface{}{
-				"deleted_count": len(structuredResp.DeleteTasks),
-			})
+
+			if deletedCount > 0 {
+				_ = supabase.TrackUserActivity(supabaseClient, userId, sessionID, "tasks_deleted",
+					fmt.Sprintf("Assistant deleted %d tasks", deletedCount), map[string]interface{}{
+						"deleted_count": deletedCount,
+						"task_ids":      structuredResp.DeleteTasks,
+					})
+			}
 		}()
 	}
 
-	// Handle task updates (assistant-initiated)
+	// Replace your task update section with:
 	if len(structuredResp.UpdateTasks) > 0 {
 		go func() {
 			updatedCount := 0
 			for _, update := range structuredResp.UpdateTasks {
+				// Add validation
+				if update.ID == "" {
+					config.Logger.Warn("Empty task ID in update request")
+					continue
+				}
+
+				// Verify task belongs to user
+				found := false
+				for _, task := range keyTasks {
+					if task.ID == update.ID {
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					config.Logger.Warn("Attempted to update non-existent or unauthorized task:", update.ID)
+					continue
+				}
+
 				payload := map[string]interface{}{}
 				if update.Title != "" {
 					payload["title"] = update.Title
@@ -168,20 +220,39 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 					payload["description"] = update.Description
 				}
 				if update.Status != "" {
+					// Validate status
+					validStatuses := []string{"pending", "completed", "cancelled"}
+					isValid := false
+					for _, status := range validStatuses {
+						if update.Status == status {
+							isValid = true
+							break
+						}
+					}
+					if !isValid {
+						config.Logger.Warn("Invalid status for task update:", update.Status)
+						continue
+					}
 					payload["status"] = update.Status
 				}
+
 				if len(payload) > 0 {
-					if _, err := supabase.UpdateTask(supabaseClient, update.ID, userId, payload); err != nil {
-						config.Logger.Warn("Failed to update assistant-suggested task:", err)
+					if updatedTask, err := supabase.UpdateTask(supabaseClient, update.ID, userId, payload); err != nil {
+						config.Logger.Warn("Failed to update assistant-suggested task:", update.ID, "error:", err)
 					} else {
 						updatedCount++
+						config.Logger.Info("AI successfully updated task:", update.ID, "changes:", payload)
+						config.Logger.Info("Updated task details:", updatedTask.Title, updatedTask.Status)
 					}
 				}
 			}
+
 			if updatedCount > 0 {
-				_ = supabase.TrackUserActivity(supabaseClient, userId, sessionID, "tasks_updated", "Assistant updated tasks", map[string]interface{}{
-					"updated_count": updatedCount,
-				})
+				_ = supabase.TrackUserActivity(supabaseClient, userId, sessionID, "tasks_updated",
+					fmt.Sprintf("Assistant updated %d tasks", updatedCount), map[string]interface{}{
+						"updated_count": updatedCount,
+						"updates":       structuredResp.UpdateTasks,
+					})
 			}
 		}()
 	}

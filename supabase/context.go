@@ -2,10 +2,13 @@ package supabase
 
 import (
 	"clementus360/ai-helper/types"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/supabase-community/postgrest-go"
 	"github.com/supabase-community/supabase-go"
 )
 
@@ -62,38 +65,50 @@ func getRecentMessagesWithPriority(client *supabase.Client, sessionID, userID st
 		return nil, err
 	}
 
-	// Apply smart filtering
-	return prioritizeMessages(messages, limit), nil
+	// Apply smart filtering while maintaining chronological order
+	return prioritizeMessagesChronologically(messages, limit), nil
 }
 
-func getKeyTasks(client *supabase.Client, sessionID, userID string) ([]types.Task, error) {
-	// Only fetch pending tasks for this session to keep context concise
-	tasks, _, err := GetTasks(client, userID, sessionID, "pending", 10, 0, "", "due_date", "asc")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get key tasks: %w", err)
+func prioritizeMessagesChronologically(messages []types.Message, limit int) []types.Message {
+	if len(messages) <= limit {
+		return messages // Already within limit, keep all
 	}
-	return tasks, nil
-}
 
-func prioritizeMessages(messages []types.Message, limit int) []types.Message {
+	// Strategy: Take most recent messages, but boost important ones
 	type ScoredMessage struct {
 		Message types.Message
 		Score   int
+		Index   int // Original chronological position
 	}
 
 	var scored []ScoredMessage
-	for _, msg := range messages {
+	for i, msg := range messages {
 		score := 0
+
+		// Base score: more recent = higher score
+		score += (len(messages) - i) * 10 // Chronological priority
+
+		// Content-based boosts
 		if msg.Sender == "user" && len(msg.Content) > 80 {
-			score += 2
+			score += 5
 		}
 		if msg.Sender == "ai" && strings.Contains(msg.Content, "task") {
-			score += 2
+			score += 5
 		}
 		if msg.Sender == "user" && strings.Contains(msg.Content, "?") {
-			score++
+			score += 3
 		}
-		scored = append(scored, ScoredMessage{Message: msg, Score: score})
+
+		// Boost very recent messages even more
+		if i < 3 {
+			score += 20
+		}
+
+		scored = append(scored, ScoredMessage{
+			Message: msg,
+			Score:   score,
+			Index:   i,
+		})
 	}
 
 	// Sort by score desc
@@ -101,12 +116,62 @@ func prioritizeMessages(messages []types.Message, limit int) []types.Message {
 		return b.Score - a.Score
 	})
 
-	// Return top N messages
-	var prioritized []types.Message
+	// Take top N, but then re-sort by original chronological order
+	var selected []ScoredMessage
 	for i := 0; i < limit && i < len(scored); i++ {
-		prioritized = append(prioritized, scored[i].Message)
+		selected = append(selected, scored[i])
 	}
-	return prioritized
+
+	// Re-sort selected messages by chronological order
+	slices.SortFunc(selected, func(a, b ScoredMessage) int {
+		return a.Index - b.Index
+	})
+
+	// Extract just the messages
+	var result []types.Message
+	for _, s := range selected {
+		result = append(result, s.Message)
+	}
+
+	return result
+}
+
+func getKeyTasks(client *supabase.Client, sessionID, userID string) ([]types.Task, error) {
+	// Get pending tasks, but also include recently completed ones for context
+	// This helps the AI understand what's been accomplished
+	query := client.From("tasks").
+		Select("*", "exact", false).
+		Eq("user_id", userID)
+
+	if sessionID != "" {
+		query = query.Eq("session_id", sessionID)
+	}
+
+	// Get pending tasks AND recently completed tasks (last 7 days)
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+	query = query.Or(
+		fmt.Sprintf("status.eq.pending,and(status.eq.completed,created_at.gte.%s)",
+			sevenDaysAgo.Format("2006-01-02T15:04:05")),
+		"",
+	)
+
+	// Order by priority: pending first, then by due date, then by creation date
+	query = query.Order("status", &postgrest.OrderOpts{Ascending: true}). // pending comes before completed
+										Order("due_date", &postgrest.OrderOpts{Ascending: true, NullsFirst: false}).
+										Order("created_at", &postgrest.OrderOpts{Ascending: false}).
+										Limit(15, "") // Increased limit to include more context
+
+	resp, _, err := query.Execute()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get key tasks: %w", err)
+	}
+
+	var tasks []types.Task
+	if err := json.Unmarshal(resp, &tasks); err != nil {
+		return nil, fmt.Errorf("failed to decode task data: %w", err)
+	}
+
+	return tasks, nil
 }
 
 func generatePrioritySignals(context types.SmartContext) []string {

@@ -29,15 +29,27 @@ Try: "Classic project paralysis - you see the mountain but can't find the first 
 Instead of: "How are you feeling?"
 Try: "You mentioned three concerns but they all circle back to feeling out of control. That's usually about timing or unclear expectations. Ring true?"
 
-If the current or past conversation shows that any tasks you've previously created are no longer helpful, relevant, or appropriate, you may update or delete them. Be precise and intentional—avoid unnecessary changes.
+TASK MANAGEMENT:
+You can create, update, or delete tasks based on the conversation. When updating or deleting tasks, use the exact task ID provided in the context.
+
+Task Actions:
+- **Mark as completed**: When user indicates they finished a task, use update_tasks with status: "completed"
+- **Set due dates**: Use update_tasks to add due_date field (RFC3339 format: "2025-07-13T00:00:00Z")
+- **Delete tasks**: Only delete if truly irrelevant, duplicate, or user explicitly wants them removed
+- **Be proactive**: When users clearly indicate completion or progress, act on it immediately
+- **Reference tasks by title**: Never use task IDs when talking to users - always refer to tasks by their titles
+
+For task updates/deletions:
+- Use the exact task ID from the CURRENT TASKS section
+- When user says they completed tasks, mark them completed immediately
+- Ask follow-up questions about insights gained after marking complete
+- Be responsive to clear user statements about task status
+- Always refer to tasks by their titles when communicating with users
 
 Examples:
-- "I’ve updated the earlier task to better reflect your current focus."
-- "That old task about journaling no longer applies—deleted it."
-
-In the response:
-- Clearly explain any task changes you made (if any).
-- If you made no changes, no need to mention them.
+- "I've marked your 'Low-Stakes Decision Practice' task as completed. What insights did you gain from that exercise?"
+- "Added a due date of next Friday to your 'Reframe Boundaries' task as requested."
+- "Deleted your old 'Daily Journaling' task since it's no longer relevant to your current focus."
 
 Engagement:
 - Point out patterns: "You mention time pressure a lot - is that the real issue?"
@@ -90,7 +102,8 @@ Solutions (only after understanding):
       "id": "task_id_3",
       "title": "New title (optional)",
       "description": "Updated description (optional)",
-      "status": "completed" // or "pending", "cancelled"
+      "status": "completed", // or "pending", "cancelled"
+      "due_date": "2025-07-13T00:00:00Z" // RFC3339 format for time.Time, optional
     }
   ]
 }
@@ -115,15 +128,34 @@ ONLY respond with valid JSON. You can use markdown in your response text for emp
 		sections = append(sections, fmt.Sprintf("HOW THEY COMMUNICATE:\n- %s", context.UserPatterns.PreferredResponseStyle))
 	}
 
-	// Key tasks
+	// Key tasks - ENHANCED WITH FULL TASK DETAILS
 	if len(context.KeyTasks) > 0 {
-		taskBlock := "CURRENT TASKS:\n"
+		taskBlock := "CURRENT TASKS (with IDs for updates/deletions):\n"
 		for _, task := range context.KeyTasks {
 			status := task.Status
 			if task.DueDate != nil && task.DueDate.Before(time.Now()) {
 				status = "OVERDUE"
 			}
-			taskBlock += fmt.Sprintf("- %s (%s)\n", task.Title, status)
+
+			// Include full task details for AI context
+			taskBlock += fmt.Sprintf("- ID: %s\n", task.ID)
+			taskBlock += fmt.Sprintf("  Title: %s\n", task.Title)
+			taskBlock += fmt.Sprintf("  Description: %s\n", task.Description)
+			taskBlock += fmt.Sprintf("  Status: %s\n", status)
+
+			if task.DueDate != nil {
+				taskBlock += fmt.Sprintf("  Due: %s\n", task.DueDate.Format("2006-01-02"))
+			}
+
+			if task.Decision != "" {
+				taskBlock += fmt.Sprintf("  Decision: %s\n", task.Decision)
+			}
+
+			if task.AISuggested {
+				taskBlock += "  AI-Suggested: Yes\n"
+			}
+
+			taskBlock += "\n"
 		}
 		sections = append(sections, taskBlock)
 	}
@@ -143,9 +175,11 @@ ONLY respond with valid JSON. You can use markdown in your response text for emp
 		sections = append(sections, convo)
 	}
 
-	// Current message
+	// Current message with more context
 	sections = append(sections, fmt.Sprintf("THEIR CURRENT MESSAGE:\n%s", userMessage))
 
 	fullPrompt := fmt.Sprintf("%s\n\n%s", systemInstructions, strings.Join(sections, "\n\n"))
+
+	fmt.Println("Full prompt for LLM:\n", fullPrompt) // Debugging output
 	return fullPrompt
 }
