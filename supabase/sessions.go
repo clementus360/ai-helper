@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/supabase-community/postgrest-go"
@@ -193,24 +192,22 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 		return fmt.Errorf("failed to parse session: %w", err)
 	}
 
-	if session.Title == "" || strings.ToLower(session.Title) == "untitled" {
-		// Generate smart context
-		smartContext, err := BuildSmartContext(client, sessionID, userID)
-		if err != nil {
-			return fmt.Errorf("failed to build smart context: %w", err)
-		}
+	// Generate smart context
+	smartContext, err := BuildSmartContext(client, sessionID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to build smart context: %w", err)
+	}
 
-		// Ask Gemini for a session title
-		title, err := llm.GenerateSessionTitle(smartContext)
-		if err != nil {
-			return fmt.Errorf("failed to generate session title: %w", err)
-		}
+	// Ask Gemini for a session title
+	title, err := llm.GenerateSessionTitle(smartContext)
+	if err != nil {
+		return fmt.Errorf("failed to generate session title: %w", err)
+	}
 
-		// Save session title
-		_, err = UpdateSessionTitle(client, sessionID, userID, title)
-		if err != nil {
-			return fmt.Errorf("failed to update session title: %w", err)
-		}
+	// Save session title
+	_, err = UpdateSessionTitle(client, sessionID, userID, title)
+	if err != nil {
+		return fmt.Errorf("failed to update session title: %w", err)
 	}
 
 	return nil

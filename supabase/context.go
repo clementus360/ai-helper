@@ -4,8 +4,6 @@ import (
 	"clementus360/ai-helper/types"
 	"encoding/json"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/supabase-community/postgrest-go"
@@ -67,73 +65,6 @@ func getRecentMessagesWithPriority(client *supabase.Client, sessionID, userID st
 
 	// Apply smart filtering while maintaining chronological order
 	return messages, nil
-}
-
-func prioritizeMessagesChronologically(messages []types.Message, limit int) []types.Message {
-	if len(messages) <= limit {
-		return messages // Already within limit, keep all
-	}
-
-	// Strategy: Take most recent messages, but boost important ones
-	type ScoredMessage struct {
-		Message types.Message
-		Score   int
-		Index   int // Original chronological position
-	}
-
-	var scored []ScoredMessage
-	for i, msg := range messages {
-		score := 0
-
-		// Base score: more recent = higher score
-		score += (len(messages) - i) * 10 // Chronological priority
-
-		// Content-based boosts
-		if msg.Sender == "user" && len(msg.Content) > 80 {
-			score += 5
-		}
-		if msg.Sender == "ai" && strings.Contains(msg.Content, "task") {
-			score += 5
-		}
-		if msg.Sender == "user" && strings.Contains(msg.Content, "?") {
-			score += 3
-		}
-
-		// Boost very recent messages even more
-		if i < 3 {
-			score += 20
-		}
-
-		scored = append(scored, ScoredMessage{
-			Message: msg,
-			Score:   score,
-			Index:   i,
-		})
-	}
-
-	// Sort by score desc
-	slices.SortFunc(scored, func(a, b ScoredMessage) int {
-		return b.Score - a.Score
-	})
-
-	// Take top N, but then re-sort by original chronological order
-	var selected []ScoredMessage
-	for i := 0; i < limit && i < len(scored); i++ {
-		selected = append(selected, scored[i])
-	}
-
-	// Re-sort selected messages by chronological order
-	slices.SortFunc(selected, func(a, b ScoredMessage) int {
-		return a.Index - b.Index
-	})
-
-	// Extract just the messages
-	var result []types.Message
-	for _, s := range selected {
-		result = append(result, s.Message)
-	}
-
-	return result
 }
 
 func getKeyTasks(client *supabase.Client, sessionID, userID string) ([]types.Task, error) {
