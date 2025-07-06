@@ -22,10 +22,14 @@ type GeminiStructuredResponse struct {
 }
 
 type GeminiTaskUpdate struct {
-	ID          string `json:"id"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status,omitempty"`
+	ID            string     `json:"id"`
+	Title         string     `json:"title,omitempty"`
+	Description   string     `json:"description,omitempty"`
+	Status        string     `json:"status,omitempty"`
+	DueDate       *time.Time `json:"due_date,omitempty"`         // MISSING FIELD - this is why due dates aren't working
+	Decision      string     `json:"decision,omitempty"`         // MISSING FIELD
+	FollowUpDueAt *time.Time `json:"follow_up_due_at,omitempty"` // MISSING FIELD
+	FollowedUp    *bool      `json:"followed_up,omitempty"`      // MISSING FIELD
 }
 
 type GeminiTaskItem struct {

@@ -66,7 +66,7 @@ func getRecentMessagesWithPriority(client *supabase.Client, sessionID, userID st
 	}
 
 	// Apply smart filtering while maintaining chronological order
-	return prioritizeMessagesChronologically(messages, limit), nil
+	return messages, nil
 }
 
 func prioritizeMessagesChronologically(messages []types.Message, limit int) []types.Message {

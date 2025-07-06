@@ -32,12 +32,24 @@ Try: "You mentioned three concerns but they all circle back to feeling out of co
 TASK MANAGEMENT:
 You can create, update, or delete tasks based on the conversation. When updating or deleting tasks, use the exact task ID provided in the context.
 
+**TASK STRUCTURE (fields you can update):**
+- id: string (required for updates, don't change this)
+- title: string (task name)
+- description: string (detailed instructions)
+- status: string (pending, completed, cancelled)
+- due_date: time (RFC3339 format: "2025-07-13T00:00:00Z")
+- decision: string (approved, declined, undecided)
+- follow_up_due_at: time (RFC3339 format)
+- followed_up: boolean
+
+**DO NOT UPDATE:** user_id, goal_id, message_id, ai_suggested, created_at, session_id (these are managed by the system)
+
 Task Actions:
 - **Mark as completed**: When user indicates they finished a task, use update_tasks with status: "completed"
 - **Set due dates**: Use update_tasks to add due_date field (RFC3339 format: "2025-07-13T00:00:00Z")
 - **Delete tasks**: Only delete if truly irrelevant, duplicate, or user explicitly wants them removed
 - **Be proactive**: When users clearly indicate completion or progress, act on it immediately
-- **Reference tasks by title**: Never use task IDs when talking to users - always refer to tasks by their titles
+- **Reference tasks by title**: Never use task IDs when talking to users - always refer to tasks by their titles, never show IDs in messages responses
 
 For task updates/deletions:
 - Use the exact task ID from the CURRENT TASKS section
@@ -50,6 +62,15 @@ Examples:
 - "I've marked your 'Low-Stakes Decision Practice' task as completed. What insights did you gain from that exercise?"
 - "Added a due date of next Friday to your 'Reframe Boundaries' task as requested."
 - "Deleted your old 'Daily Journaling' task since it's no longer relevant to your current focus."
+
+**IMPORTANT JSON FORMATTING:**
+- When updating tasks, ONLY include the task ID and the specific fields being changed
+- Do NOT include empty or unchanged fields  
+- Find the correct task ID by matching the task title the user mentioned
+- Only update one task at a time unless explicitly asked to update multiple
+- NEVER include fields with empty values like "title": "", "description": "", "status": ""
+- If setting due date, ONLY include "id" and "due_date" fields
+- If marking complete, ONLY include "id" and "status" fields
 
 Engagement:
 - Point out patterns: "You mention time pressure a lot - is that the real issue?"
@@ -100,11 +121,54 @@ Solutions (only after understanding):
   "update_tasks": [
     {
       "id": "task_id_3",
-      "title": "New title (optional)",
-      "description": "Updated description (optional)",
-      "status": "completed", // or "pending", "cancelled"
-      "due_date": "2025-07-13T00:00:00Z" // RFC3339 format for time.Time, optional
+      "due_date": "2025-07-13T00:00:00Z"
     }
+  ]
+}
+
+**CRITICAL UPDATE RULES:**
+- ONLY include the "id" field (required) and the fields you want to change
+- DO NOT include empty, null, or unchanged fields
+- DO NOT update system-managed fields (user_id, goal_id, message_id, ai_suggested, created_at, session_id)
+- For due dates: Use RFC3339 format like "2025-07-13T00:00:00Z"
+- For status: Use "pending", "completed", or "cancelled"
+- For decision: Use "approved", "declined", or "undecided"
+- Only update the specific task the user mentioned, not all tasks
+- When user says "set due date for [task name]", find that specific task ID and update only that one
+
+**VALID UPDATE EXAMPLES:**
+Setting due date only:
+{
+  "update_tasks": [
+    {"id": "task_id_123", "due_date": "2025-07-13T00:00:00Z"}
+  ]
+}
+
+Marking completed only:
+{
+  "update_tasks": [
+    {"id": "task_id_123", "status": "completed"}
+  ]
+}
+
+Updating title and description:
+{
+  "update_tasks": [
+    {"id": "task_id_123", "title": "New Title", "description": "New description"}
+  ]
+}
+
+Remove due date from a task:
+{
+  "update_tasks": [
+    {"id": "task_id_123", "due_date": null}
+  ]
+}
+
+**WRONG - DO NOT DO THIS:**
+{
+  "update_tasks": [
+    {"id": "task_id_123", "title": "", "description": "", "status": ""}
   ]
 }
 
@@ -112,6 +176,10 @@ ONLY respond with valid JSON. You can use markdown in your response text for emp
 `
 
 	sections := []string{}
+
+	// Add current date context
+	currentDate := time.Now().Format("Monday, January 2, 2006")
+	sections = append(sections, fmt.Sprintf("CURRENT DATE: %s", currentDate))
 
 	// What this conversation is about
 	if context.Summary != "" {
@@ -164,7 +232,9 @@ ONLY respond with valid JSON. You can use markdown in your response text for emp
 	if len(context.RecentMessages) > 0 {
 		convo := "CONVERSATION HISTORY:\n"
 
-		for _, msg := range context.RecentMessages {
+		// Reverse to show oldest first (chronological order)
+		for i := len(context.RecentMessages) - 1; i >= 0; i-- {
+			msg := context.RecentMessages[i]
 			if msg.Sender == "user" {
 				convo += fmt.Sprintf("THEM: %s\n\n", msg.Content)
 			} else {
@@ -180,6 +250,5 @@ ONLY respond with valid JSON. You can use markdown in your response text for emp
 
 	fullPrompt := fmt.Sprintf("%s\n\n%s", systemInstructions, strings.Join(sections, "\n\n"))
 
-	fmt.Println("Full prompt for LLM:\n", fullPrompt) // Debugging output
 	return fullPrompt
 }

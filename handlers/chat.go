@@ -213,11 +213,15 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 				}
 
 				payload := map[string]interface{}{}
+				hasUpdates := false
+
 				if update.Title != "" {
 					payload["title"] = update.Title
+					hasUpdates = true
 				}
 				if update.Description != "" {
 					payload["description"] = update.Description
+					hasUpdates = true
 				}
 				if update.Status != "" {
 					// Validate status
@@ -234,9 +238,31 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 					payload["status"] = update.Status
+					hasUpdates = true
 				}
 
-				if len(payload) > 0 {
+				// Handle DueDate updates - including clearing the date
+				// Check if DueDate field was explicitly set in the update request
+				if update.DueDate != nil {
+					if !update.DueDate.IsZero() {
+						payload["due_date"] = update.DueDate
+					} else {
+						// Clear the due date by setting it to null
+						payload["due_date"] = nil
+					}
+					hasUpdates = true
+				}
+
+				// Handle Decision updates if applicable
+				if update.Decision != "" {
+					payload["decision"] = update.Decision
+					hasUpdates = true
+				}
+
+				// Note: We need to check the UpdateTasks struct definition to handle
+				// FollowUpDueAt and FollowedUp properly without nil pointer errors
+
+				if hasUpdates {
 					if updatedTask, err := supabase.UpdateTask(supabaseClient, update.ID, userId, payload); err != nil {
 						config.Logger.Warn("Failed to update assistant-suggested task:", update.ID, "error:", err)
 					} else {
@@ -244,6 +270,8 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 						config.Logger.Info("AI successfully updated task:", update.ID, "changes:", payload)
 						config.Logger.Info("Updated task details:", updatedTask.Title, updatedTask.Status)
 					}
+				} else {
+					config.Logger.Warn("No valid fields to update for task:", update.ID)
 				}
 			}
 
