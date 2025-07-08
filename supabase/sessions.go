@@ -113,10 +113,12 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 		Eq("session_id", sessionID).
 		Execute()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fetch session summaries: %w", err)
 	}
 	var summaries []types.SessionSummary
-	_ = json.Unmarshal(summaryResp, &summaries)
+	if err := json.Unmarshal(summaryResp, &summaries); err != nil {
+		return fmt.Errorf("failed to parse session summaries: %w", err)
+	}
 
 	var lastUpdate time.Time
 	if len(summaries) > 0 {
@@ -131,10 +133,12 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 		Gt("created_at", lastUpdate.Format(time.RFC3339)).
 		Execute()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to count messages: %w", err)
 	}
 	var newMessages []types.Message
-	_ = json.Unmarshal(countResp, &newMessages)
+	if err := json.Unmarshal(countResp, &newMessages); err != nil {
+		return fmt.Errorf("failed to parse messages: %w", err)
+	}
 	if len(newMessages) < SUMMARY_UPDATE_THRESHOLD {
 		return nil
 	}
@@ -147,49 +151,14 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 		Order("created_at", nil).
 		Execute()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fetch messages: %w", err)
 	}
 	var messages []types.Message
-	_ = json.Unmarshal(allResp, &messages)
+	if err := json.Unmarshal(allResp, &messages); err != nil {
+		return fmt.Errorf("failed to parse messages: %w", err)
+	}
 	if len(messages) < 5 {
 		return nil
-	}
-
-	// generate summary using LLM
-	summary, err := llm.GenerateSessionSummary(messages)
-	if err != nil {
-		return err
-	}
-
-	data := types.SessionSummary{
-		SessionID:   sessionID,
-		UserID:      userID,
-		Summary:     summary,
-		LastUpdated: time.Now(),
-	}
-
-	_, _, err = client.From("session_summaries").
-		Upsert(data, "", "", "").
-		Execute()
-
-	if err != nil {
-		return err
-	}
-
-	// Fetch session to check current title
-	sessionResp, _, err := client.From("sessions").
-		Select("id, title", "", false).
-		Eq("id", sessionID).
-		Eq("user_id", userID).
-		Single().
-		Execute()
-	if err != nil {
-		return fmt.Errorf("failed to fetch session: %w", err)
-	}
-
-	var session types.Session
-	if err := json.Unmarshal(sessionResp, &session); err != nil {
-		return fmt.Errorf("failed to parse session: %w", err)
 	}
 
 	// Generate smart context
@@ -198,10 +167,24 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 		return fmt.Errorf("failed to build smart context: %w", err)
 	}
 
-	// Ask Gemini for a session title
-	title, err := llm.GenerateSessionTitle(smartContext)
+	// Generate summary and title
+	summary, title, err := llm.GenerateSessionSummaryAndTitle(messages, smartContext)
 	if err != nil {
-		return fmt.Errorf("failed to generate session title: %w", err)
+		return fmt.Errorf("failed to generate summary and title: %w", err)
+	}
+
+	// Save summary
+	data := types.SessionSummary{
+		SessionID:   sessionID,
+		UserID:      userID,
+		Summary:     summary,
+		LastUpdated: time.Now(),
+	}
+	_, _, err = client.From("session_summaries").
+		Upsert(data, "", "", "").
+		Execute()
+	if err != nil {
+		return fmt.Errorf("failed to save summary: %w", err)
 	}
 
 	// Save session title

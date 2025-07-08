@@ -217,11 +217,11 @@ func validateResponse(response GeminiStructuredResponse) error {
 	return nil
 }
 
-// GenerateSessionSummary summarizes a list of messages into a paragraph summary
-func GenerateSessionSummary(messages []types.Message) (string, error) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
+// GenerateSessionSummaryAndTitle generates both a summary and title in one API call
+func GenerateSessionSummaryAndTitle(messages []types.Message, context types.SmartContext) (string, string, error) {
+	apiKey := os.Getenv("GEMINI_API_KEY_SUMMARY_TITLE")
 	if apiKey == "" {
-		return "", fmt.Errorf("GEMINI_API_KEY not set")
+		return "", "", fmt.Errorf("GEMINI_API_KEY_SUMMARY_TITLE not set")
 	}
 
 	// Build message log
@@ -236,12 +236,22 @@ func GenerateSessionSummary(messages []types.Message) (string, error) {
 		chatLog.WriteString("\n")
 	}
 
-	// Prompt instructs the LLM to summarize
-	prompt := fmt.Sprintf(`You are a helpful assistant. Summarize the following conversation into a clear and concise paragraph:
+	// Prompt for both summary and title
+	prompt := fmt.Sprintf(`You are a helpful assistant. Based on the following conversation and context:
 
+Conversation:
 %s
+Context: %v
 
-Summary:`, chatLog.String())
+Provide a JSON response with:
+- summary: A clear and concise paragraph summarizing the conversation
+- title: A short session title (<8 words)
+
+Respond in valid JSON format only. Example:
+{
+  "summary": "The user discussed communication challenges and received tasks to improve.",
+  "title": "Improving Communication Skills"
+}`, chatLog.String(), context)
 
 	body := map[string]interface{}{
 		"contents": []map[string]interface{}{
@@ -254,108 +264,57 @@ Summary:`, chatLog.String())
 		"generationConfig": map[string]interface{}{
 			"temperature":     0.3,
 			"maxOutputTokens": 300,
+			"topP":            0.8,
 		},
 	}
 
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return "", err
+		return "", "", fmt.Errorf("failed to marshal request: %v", err)
 	}
 
 	req, err := http.NewRequest("POST", apiURL+"?key="+apiKey, bytes.NewReader(jsonData))
 	if err != nil {
-		return "", err
+		return "", "", fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", fmt.Errorf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("gemini API error: %s", resp.Status)
+		return "", "", fmt.Errorf("API returned status %d", resp.StatusCode)
 	}
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+		return "", "", fmt.Errorf("failed to decode response: %v", err)
 	}
 
-	// Extract response text
-	candidates := result["candidates"].([]interface{})
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("no summary generated")
-	}
-	content := candidates[0].(map[string]interface{})["content"].(map[string]interface{})
-	parts := content["parts"].([]interface{})
-	text := parts[0].(map[string]interface{})["text"].(string)
-
-	return strings.TrimSpace(text), nil
-}
-
-// GenerateSessionTitle uses Gemini to suggest a short title for a session
-func GenerateSessionTitle(context types.SmartContext) (string, error) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		return "", fmt.Errorf("GEMINI_API_KEY not set")
-	}
-
-	prompt := fmt.Sprintf(`Based on this conversation, suggest a short, clear session title that summarizes the user's goal or issue in less than 8 words.
-
-Conversation context:
-%s
-
-Respond only with the title.`, BuildSmartPrompt(context, ""))
-
-	body := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{"parts": []map[string]string{{"text": prompt}}},
-		},
-		"generationConfig": map[string]interface{}{
-			"temperature":     0.3,
-			"maxOutputTokens": 50,
-			"topP":            0.8,
-		},
-	}
-
-	jsonData, _ := json.Marshal(body)
-	req, err := http.NewRequest("POST", apiURL+"?key="+apiKey, bytes.NewReader(jsonData))
+	text, err := extractTextFromResponse(result)
 	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("gemini API error %d", resp.StatusCode)
+		return "", "", err
 	}
 
-	var res map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", err
+	// Parse JSON response
+	var structured struct {
+		Summary string `json:"summary"`
+		Title   string `json:"title"`
+	}
+	cleanedText := cleanJSONResponse(text)
+	if err := json.Unmarshal([]byte(cleanedText), &structured); err != nil {
+		return "", "", fmt.Errorf("failed to parse JSON response: %v\nOriginal text: %s", err, text)
 	}
 
-	text, err := extractTextFromResponse(res)
-	if err != nil {
-		return "", err
+	if structured.Summary == "" || structured.Title == "" {
+		return "", "", fmt.Errorf("empty summary or title in response")
 	}
 
-	title := strings.TrimSpace(text)
-	title = strings.Trim(title, `"'`)
-	if len(title) == 0 {
-		return "", fmt.Errorf("empty title response")
-	}
-
-	return title, nil
+	return strings.TrimSpace(structured.Summary), strings.TrimSpace(structured.Title), nil
 }
 
 // Backward compatibility wrapper
