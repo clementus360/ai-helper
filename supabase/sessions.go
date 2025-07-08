@@ -204,6 +204,7 @@ func GetSessions(client *supabase.Client, userID string) ([]types.Session, error
 	query := client.From("sessions").
 		Select("*", "", false).
 		Eq("user_id", userID).
+		Is("deleted_at", "null").
 		Order("created_at", &postgrest.OrderOpts{Ascending: false})
 
 	resp, _, err := query.Execute()
@@ -262,4 +263,206 @@ func UpdateSessionTitle(client *supabase.Client, sessionID, userID, newTitle str
 	}
 
 	return updated[0], nil
+}
+
+// DeleteSession soft deletes a session and all related data
+func DeleteSession(client *supabase.Client, sessionID, userID string) error {
+	if sessionID == "" || userID == "" {
+		return fmt.Errorf("session ID and user ID are required")
+	}
+
+	// Start transaction-like operations
+	now := time.Now()
+
+	// Soft delete the session
+	_, _, err := client.From("sessions").
+		Update(map[string]interface{}{
+			"deleted_at": now.Format(time.RFC3339),
+		}, "", "").
+		Eq("id", sessionID).
+		Eq("user_id", userID).
+		Is("deleted_at", "null"). // Only delete if not already deleted
+		Execute()
+
+	if err != nil {
+		return fmt.Errorf("failed to delete session: %w", err)
+	}
+
+	// Soft delete related messages
+	_, _, err = client.From("messages").
+		Update(map[string]interface{}{
+			"deleted_at": now.Format(time.RFC3339),
+		}, "", "").
+		Eq("session_id", sessionID).
+		Eq("user_id", userID).
+		Is("deleted_at", "null").
+		Execute()
+
+	if err != nil {
+		log.Printf("Warning: failed to soft delete messages for session %s: %v", sessionID, err)
+	}
+
+	// Soft delete related tasks
+	_, _, err = client.From("tasks").
+		Update(map[string]interface{}{
+			"deleted_at": now.Format(time.RFC3339),
+		}, "", "").
+		Eq("session_id", sessionID).
+		Eq("user_id", userID).
+		Is("deleted_at", "null").
+		Execute()
+
+	if err != nil {
+		log.Printf("Warning: failed to soft delete tasks for session %s: %v", sessionID, err)
+	}
+
+	// Soft delete user activities
+	_, _, err = client.From("user_activities").
+		Update(map[string]interface{}{
+			"deleted_at": now.Format(time.RFC3339),
+		}, "", "").
+		Eq("session_id", sessionID).
+		Eq("user_id", userID).
+		Is("deleted_at", "null").
+		Execute()
+
+	if err != nil {
+		log.Printf("Warning: failed to soft delete user activities for session %s: %v", sessionID, err)
+	}
+
+	// Soft delete session summary
+	_, _, err = client.From("session_summaries").
+		Update(map[string]interface{}{
+			"deleted_at": now.Format(time.RFC3339),
+		}, "", "").
+		Eq("session_id", sessionID).
+		Eq("user_id", userID).
+		Is("deleted_at", "null").
+		Execute()
+
+	if err != nil {
+		log.Printf("Warning: failed to soft delete session summary for session %s: %v", sessionID, err)
+	}
+
+	return nil
+}
+
+// RestoreSession restores a soft-deleted session and all related data
+func RestoreSession(client *supabase.Client, sessionID, userID string) error {
+	if sessionID == "" || userID == "" {
+		return fmt.Errorf("session ID and user ID are required")
+	}
+
+	// Restore the session
+	_, _, err := client.From("sessions").
+		Update(map[string]interface{}{
+			"deleted_at": nil,
+		}, "", "").
+		Eq("id", sessionID).
+		Eq("user_id", userID).
+		Not("deleted_at", "is", "null"). // Only restore if deleted
+		Execute()
+
+	if err != nil {
+		return fmt.Errorf("failed to restore session: %w", err)
+	}
+
+	// Restore related data
+	tables := []string{"messages", "tasks", "user_activities", "session_summaries"}
+	for _, table := range tables {
+		_, _, err = client.From(table).
+			Update(map[string]interface{}{
+				"deleted_at": nil,
+			}, "", "").
+			Eq("session_id", sessionID).
+			Eq("user_id", userID).
+			Not("deleted_at", "is", "null").
+			Execute()
+
+		if err != nil {
+			log.Printf("Warning: failed to restore %s for session %s: %v", table, sessionID, err)
+		}
+	}
+
+	return nil
+}
+
+// HardDeleteSession permanently deletes a session and all related data
+// Use with extreme caution - this cannot be undone
+func HardDeleteSession(client *supabase.Client, sessionID, userID string) error {
+	if sessionID == "" || userID == "" {
+		return fmt.Errorf("session ID and user ID are required")
+	}
+
+	// Delete in reverse dependency order
+	tables := []string{"user_activities", "tasks", "messages", "session_summaries", "sessions"}
+
+	for _, table := range tables {
+		_, _, err := client.From(table).
+			Delete("", "").
+			Eq("session_id", sessionID).
+			Eq("user_id", userID).
+			Execute()
+
+		if err != nil {
+			return fmt.Errorf("failed to hard delete from %s: %w", table, err)
+		}
+	}
+
+	return nil
+}
+
+// GetDeletedSessions returns soft-deleted sessions for a user
+func GetDeletedSessions(client *supabase.Client, userID string) ([]types.Session, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("missing user ID")
+	}
+
+	resp, _, err := client.From("sessions").
+		Select("*", "", false).
+		Eq("user_id", userID).
+		Not("deleted_at", "is", "null").
+		Order("deleted_at", &postgrest.OrderOpts{Ascending: false}).
+		Execute()
+
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []types.Session
+	if err := json.Unmarshal(resp, &sessions); err != nil {
+		return nil, fmt.Errorf("failed to decode session data: %w", err)
+	}
+
+	return sessions, nil
+}
+
+// CleanupOldDeletedSessions permanently removes soft-deleted sessions older than specified duration
+func CleanupOldDeletedSessions(client *supabase.Client, olderThan time.Duration) error {
+	cutoff := time.Now().Add(-olderThan)
+
+	// Get sessions to be permanently deleted
+	resp, _, err := client.From("sessions").
+		Select("id, user_id", "", false).
+		Not("deleted_at", "is", "null").
+		Lt("deleted_at", cutoff.Format(time.RFC3339)).
+		Execute()
+
+	if err != nil {
+		return fmt.Errorf("failed to fetch old deleted sessions: %w", err)
+	}
+
+	var sessions []types.Session
+	if err := json.Unmarshal(resp, &sessions); err != nil {
+		return fmt.Errorf("failed to decode session data: %w", err)
+	}
+
+	// Hard delete each session
+	for _, session := range sessions {
+		if err := HardDeleteSession(client, session.ID, session.UserID); err != nil {
+			log.Printf("Failed to cleanup session %s: %v", session.ID, err)
+		}
+	}
+
+	return nil
 }

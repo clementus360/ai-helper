@@ -26,3 +26,8 @@ type SessionResponse struct {
 	Success bool    `json:"success"`
 	Session Session `json:"session"`
 }
+
+type BaseResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+}
