@@ -121,6 +121,7 @@ func GetTasks(client *supabase.Client, userID, sessionID, status string, limit, 
 
 	query := client.From("tasks").
 		Select("*", "exact", false).
+		Is("deleted_at", "null").
 		Eq("user_id", userID)
 
 	if sessionID != "" {
@@ -169,6 +170,7 @@ func GetSingleTask(client *supabase.Client, userID, taskID string) ([]types.Task
 	query := client.From("tasks").
 		Select("*", "exact", false).
 		Eq("user_id", userID).
+		Is("deleted_at", "null").
 		Eq("id", taskID)
 
 	resp, _, err := query.Execute()

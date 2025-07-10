@@ -172,7 +172,7 @@ Remove due date from a task:
   ]
 }
 
-ONLY respond with valid JSON. You can use markdown in your response text for emphasis, but keep task titles and descriptions as plain text.
+ONLY respond with valid JSON, this is important, Do not include extra commentary or text outside the JSON.. You can use markdown in your response text for emphasis, but keep task titles and descriptions as plain text.
 `
 
 	sections := []string{}
