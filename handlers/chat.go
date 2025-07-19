@@ -83,7 +83,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Generate AI response with enhanced context
-	structuredResp, err := llm.GeminiGenerateResponse(req.Message, smartContext)
+	structuredResp, err := llm.GenerateResponse(req.Message, smartContext, "gemini")
 	if err != nil {
 		config.Logger.Error("Failed to get AI response:", err)
 		structuredResp = llm.GeminiStructuredResponse{

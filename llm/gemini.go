@@ -489,20 +489,20 @@ func createFallbackResponse(userInput, rawText string) GeminiStructuredResponse 
 	// Try to extract partial task data
 	partialData := extractPartialDataFromBrokenJSON(rawText)
 
-	// Use raw text if non-empty
-	if strings.TrimSpace(rawText) != "" {
-		return GeminiStructuredResponse{
-			Response:    strings.TrimSpace(rawText),
-			ActionItems: partialData.ActionItems,
-			DeleteTasks: partialData.DeleteTasks,
-			UpdateTasks: partialData.UpdateTasks,
-		}
-	}
+	// Check if rawText looks like JSON (starts with { and contains quotes)
+	trimmedText := strings.TrimSpace(rawText)
+	isLikelyJSON := strings.HasPrefix(trimmedText, "{") && strings.Contains(trimmedText, "\"")
 
-	// Fallback only if raw text is empty
-	responseText := "I'm sorry, I couldn't generate a response. Could you clarify what you're trying to do or what specific help you need? For example, are you asking about a task, code, or something else?"
-	if strings.Contains(strings.ToLower(userInput), "code") {
-		responseText = "It looks like you're asking about code, but I couldn't generate one. Could you specify what kind of code you're looking for (e.g., language, functionality)? I'll provide a complete example."
+	// If it looks like JSON, don't use it as the response text
+	var responseText string
+	if !isLikelyJSON && trimmedText != "" {
+		responseText = trimmedText
+	} else {
+		// Generate a proper fallback response
+		responseText = "I'm sorry, I couldn't generate a response. Could you clarify what you're trying to do or what specific help you need? For example, are you asking about a task, code, or something else?"
+		if strings.Contains(strings.ToLower(userInput), "code") {
+			responseText = "It looks like you're asking about code, but I couldn't generate one. Could you specify what kind of code you're looking for (e.g., language, functionality)? I'll provide a complete example."
+		}
 	}
 
 	return GeminiStructuredResponse{
