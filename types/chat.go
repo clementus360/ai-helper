@@ -5,12 +5,13 @@ import (
 )
 
 type Message struct {
-	ID        string    `json:"id,omitempty"`
-	UserID    string    `json:"user_id"`
-	Sender    string    `json:"sender"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	SessionID string    `json:"session_id"` // for associating messages with chat sessions
+	ID            string    `json:"id,omitempty"`
+	UserID        string    `json:"user_id"`
+	Sender        string    `json:"sender"`
+	Content       string    `json:"content"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
+	SessionID     string    `json:"session_id"`                // for associating messages with chat sessions
+	UserMessageID string    `json:"user_message_id,omitempty"` // for linking to user messages
 }
 
 type ChatRequest struct {

@@ -65,7 +65,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the user message
-	_, err = supabase.SaveMessage(supabaseClient, userId, sessionID, "user", req.Message)
+	userMessageId, err := supabase.SaveMessage(supabaseClient, userId, sessionID, "user", "", req.Message)
 	if err != nil {
 		config.Logger.Error("Failed to save message:", err)
 		writeError(w, "Could not save message", http.StatusInternalServerError)
@@ -93,7 +93,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save AI response
-	messageId, err := supabase.SaveMessage(supabaseClient, userId, sessionID, "ai", structuredResp.Response)
+	messageId, err := supabase.SaveMessage(supabaseClient, userId, sessionID, "ai", userMessageId, structuredResp.Response)
 	if err != nil {
 		config.Logger.Warn("Failed to save AI message:", err)
 	}

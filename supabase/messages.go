@@ -10,13 +10,14 @@ import (
 	"github.com/supabase-community/supabase-go"
 )
 
-func SaveMessage(client *supabase.Client, userID, sessionID, sender, content string) (string, error) {
+func SaveMessage(client *supabase.Client, userID, sessionID, sender, UserMessageID, content string) (string, error) {
 	message := types.Message{
-		UserID:    userID,
-		SessionID: sessionID,
-		Sender:    sender,
-		Content:   content,
-		CreatedAt: time.Now(),
+		UserID:        userID,
+		SessionID:     sessionID,
+		Sender:        sender,
+		Content:       content,
+		UserMessageID: UserMessageID,
+		CreatedAt:     time.Now(),
 	}
 
 	var inserted []types.Message
