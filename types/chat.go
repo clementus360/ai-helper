@@ -18,6 +18,7 @@ type ChatRequest struct {
 	Message   string `json:"message"`
 	SessionID string `json:"session_id,omitempty"`
 	ForceNew  bool   `json:"force_new,omitempty"` // if true, create a new session even if one exists
+	Model     string `json:"model,omitempty"`     // optional LLM model override
 }
 
 type ChatResponse struct {

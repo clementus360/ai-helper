@@ -82,8 +82,23 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Determine which model to use (default to openai if not specified)
+	modelProvider := "openai"
+	if req.Model != "" {
+		// Map frontend model names to backend provider names
+		switch req.Model {
+		case "chatgpt":
+			modelProvider = "openai"
+		case "gemini":
+			modelProvider = "gemini"
+		default:
+			config.Logger.Warn("Unknown model specified:", req.Model, "- defaulting to openai")
+			modelProvider = "openai"
+		}
+	}
+
 	// Generate AI response with enhanced context
-	structuredResp, err := llm.GenerateResponse(req.Message, smartContext, "gemini")
+	structuredResp, err := llm.GenerateResponse(req.Message, smartContext, llm.Model(modelProvider))
 	if err != nil {
 		config.Logger.Error("Failed to get AI response:", err)
 		structuredResp = llm.GeminiStructuredResponse{

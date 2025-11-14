@@ -14,6 +14,7 @@ const (
 
 // GenerateResponse generates a response using the specified AI model
 func GenerateResponse(userInput string, context types.SmartContext, model Model) (GeminiStructuredResponse, error) {
+	fmt.Println("Using model:", model)
 	switch model {
 	case OpenAI:
 		return OpenAIGenerateResponse(userInput, context)

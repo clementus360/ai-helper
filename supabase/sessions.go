@@ -15,7 +15,7 @@ import (
 
 const (
 	MAX_CONTEXT_MESSAGES     = 10
-	SUMMARY_UPDATE_THRESHOLD = 20
+	SUMMARY_UPDATE_THRESHOLD = 5
 )
 
 // GetOrCreateActiveSession returns recent session ID or creates a new session
@@ -139,6 +139,11 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 	if err := json.Unmarshal(countResp, &newMessages); err != nil {
 		return fmt.Errorf("failed to parse messages: %w", err)
 	}
+
+	// ADD LOGGING HERE
+	log.Printf("Session %s: %d new messages since last update (threshold: %d)",
+		sessionID, len(newMessages), SUMMARY_UPDATE_THRESHOLD)
+
 	if len(newMessages) < SUMMARY_UPDATE_THRESHOLD {
 		return nil
 	}
@@ -157,7 +162,13 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 	if err := json.Unmarshal(allResp, &messages); err != nil {
 		return fmt.Errorf("failed to parse messages: %w", err)
 	}
+
+	// ADD LOGGING HERE
+	log.Printf("Session %s: Total messages for summary: %d", sessionID, len(messages))
+
 	if len(messages) < 5 {
+		log.Printf("Session %s: Not enough messages for summary (need 5, have %d)",
+			sessionID, len(messages))
 		return nil
 	}
 
@@ -168,6 +179,7 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 	}
 
 	// Generate summary and title
+	log.Printf("Session %s: Generating new summary and title...", sessionID)
 	summary, title, err := llm.GenerateSessionSummaryAndTitle(messages, smartContext)
 	if err != nil {
 		return fmt.Errorf("failed to generate summary and title: %w", err)
@@ -193,6 +205,7 @@ func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID str
 		return fmt.Errorf("failed to update session title: %w", err)
 	}
 
+	log.Printf("Session %s: Successfully updated summary and title: '%s'", sessionID, title)
 	return nil
 }
 
