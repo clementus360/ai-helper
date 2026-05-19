@@ -6,14 +6,26 @@ import (
 	"clementus360/ai-helper/types"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 const apiURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+const (
+	geminiMinRequestSpacing = 1200 * time.Millisecond
+	geminiMaxAttempts       = 1
+)
+
+var (
+	geminiRateLimiterMu sync.Mutex
+	geminiNextAllowed   time.Time
+)
 
 type GeminiStructuredResponse struct {
 	Response    string             `json:"response"`
@@ -36,6 +48,108 @@ type GeminiTaskUpdate struct {
 type GeminiTaskItem struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
+}
+
+func waitForGeminiRequestSlot() {
+	geminiRateLimiterMu.Lock()
+	defer geminiRateLimiterMu.Unlock()
+
+	now := time.Now()
+	wait := time.Until(geminiNextAllowed)
+	if wait < 0 {
+		wait = 0
+	}
+
+	if wait == 0 {
+		geminiNextAllowed = now.Add(geminiMinRequestSpacing)
+	} else {
+		geminiNextAllowed = geminiNextAllowed.Add(geminiMinRequestSpacing)
+	}
+
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+}
+
+func geminiRetryDelay(attempt int, retryAfterHeader string) time.Duration {
+	if retryAfterHeader != "" {
+		if retryAfterSeconds, err := time.ParseDuration(retryAfterHeader + "s"); err == nil && retryAfterSeconds > 0 {
+			return retryAfterSeconds
+		}
+		if retryTime, err := http.ParseTime(retryAfterHeader); err == nil {
+			delay := time.Until(retryTime)
+			if delay > 0 {
+				return delay
+			}
+		}
+	}
+
+	delay := time.Duration(1<<uint(attempt-1)) * time.Second
+	if delay > 8*time.Second {
+		delay = 8 * time.Second
+	}
+	return delay
+}
+
+func isRetryableGeminiStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return statusCode >= 500 && statusCode < 600
+	}
+}
+
+func doGeminiJSONRequest(apiKey string, jsonData []byte) (map[string]interface{}, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	for attempt := 1; attempt <= geminiMaxAttempts; attempt++ {
+		waitForGeminiRequestSlot()
+
+		req, err := http.NewRequest("POST", apiURL+"?key="+apiKey, bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %v", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt == geminiMaxAttempts {
+				return nil, fmt.Errorf("request failed: %v", err)
+			}
+			time.Sleep(geminiRetryDelay(attempt, ""))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			if !isRetryableGeminiStatus(resp.StatusCode) {
+				defer resp.Body.Close()
+				return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
+			}
+
+			if attempt == geminiMaxAttempts {
+				defer resp.Body.Close()
+				return nil, fmt.Errorf("API returned status %d after %d attempts", resp.StatusCode, geminiMaxAttempts)
+			}
+
+			delay := geminiRetryDelay(attempt, resp.Header.Get("Retry-After"))
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			time.Sleep(delay)
+			continue
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to decode response: %v", err)
+		}
+		resp.Body.Close()
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("api request failed after %d attempts", geminiMaxAttempts)
 }
 
 func GeminiGenerateResponse(userInput string, context types.SmartContext) (GeminiStructuredResponse, error) {
@@ -79,30 +193,9 @@ func GeminiGenerateResponse(userInput string, context types.SmartContext) (Gemin
 		return GeminiStructuredResponse{}, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
-	// Create the HTTP request
-	req, err := http.NewRequest("POST", apiURL+"?key="+apiKey, bytes.NewReader(jsonData))
+	res, err := doGeminiJSONRequest(apiKey, jsonData)
 	if err != nil {
-		return GeminiStructuredResponse{}, fmt.Errorf("failed to create request: %v", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	// Add timeout to prevent hanging
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return GeminiStructuredResponse{}, fmt.Errorf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Check HTTP status
-	if resp.StatusCode != http.StatusOK {
-		return GeminiStructuredResponse{}, fmt.Errorf("API returned status %d", resp.StatusCode)
-	}
-
-	var res map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return GeminiStructuredResponse{}, fmt.Errorf("failed to decode response: %v", err)
+		return GeminiStructuredResponse{}, err
 	}
 
 	// Extract text from Gemini API response
@@ -627,9 +720,9 @@ func validateResponse(response GeminiStructuredResponse) error {
 
 // GenerateSessionSummaryAndTitle generates both a summary and title in one API call
 func GenerateSessionSummaryAndTitle(messages []types.Message, context types.SmartContext) (string, string, error) {
-	apiKey := os.Getenv("GEMINI_API_KEY_SUMMARY_TITLE")
+	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
-		return "", "", fmt.Errorf("GEMINI_API_KEY_SUMMARY_TITLE not set")
+		return "", "", fmt.Errorf("GEMINI_API_KEY not set")
 	}
 
 	// Build message log
@@ -681,26 +774,9 @@ Respond in valid JSON format only. Example:
 		return "", "", fmt.Errorf("failed to marshal request: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", apiURL+"?key="+apiKey, bytes.NewReader(jsonData))
+	result, err := doGeminiJSONRequest(apiKey, jsonData)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", "", fmt.Errorf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("API returned status %d", resp.StatusCode)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", fmt.Errorf("failed to decode response: %v", err)
+		return "", "", err
 	}
 
 	text, err := extractTextFromResponse(result)
@@ -736,27 +812,4 @@ Respond in valid JSON format only. Example:
 	}
 
 	return strings.TrimSpace(structured.Summary), strings.TrimSpace(structured.Title), nil
-}
-
-// Backward compatibility wrapper
-func GeminiGenerateResponseCompat(userMessage string, context types.SessionContext) (GeminiStructuredResponse, error) {
-	smartContext := types.SmartContext{
-		Summary:        context.Summary,
-		RecentMessages: context.RecentMessages,
-	}
-
-	return GeminiGenerateResponse(userMessage, smartContext)
-}
-
-// Deprecated functions kept for compatibility
-func cleanJSONResponse(text string) string {
-	jsonBlock, found := extractJSONFromBraces(text)
-	if found {
-		return jsonBlock
-	}
-	return strings.TrimSpace(text)
-}
-
-func attemptExtractJSONBlock(text string) (string, bool) {
-	return extractJSONFromBraces(text)
 }

@@ -137,9 +137,9 @@ func extractTextFromOpenAIResponse(res map[string]interface{}) (string, error) {
 
 // OpenAI version of session summary and title generation
 func OpenAIGenerateSessionSummaryAndTitle(messages []types.Message, context types.SmartContext) (string, string, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY_SUMMARY_TITLE")
+	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		return "", "", fmt.Errorf("OPENAI_API_KEY_SUMMARY_TITLE not set")
+		return "", "", fmt.Errorf("OPENAI_API_KEY not set")
 	}
 
 	// Build message log

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/supabase-community/postgrest-go"
@@ -16,7 +17,17 @@ import (
 const (
 	MAX_CONTEXT_MESSAGES     = 10
 	SUMMARY_UPDATE_THRESHOLD = 5
+	summaryCooldown          = 45 * time.Second
 )
+
+var summaryUpdateState = struct {
+	sync.Mutex
+	inProgress  map[string]bool
+	lastAttempt map[string]time.Time
+}{
+	inProgress:  map[string]bool{},
+	lastAttempt: map[string]time.Time{},
+}
 
 // GetOrCreateActiveSession returns recent session ID or creates a new session
 func GetOrCreateActiveSession(client *supabase.Client, userID string, forceNew bool) (string, error) {
@@ -107,6 +118,27 @@ func GetSessionContext(client *supabase.Client, sessionID, userID string) (types
 
 // UpdateSessionSummaryIfNeeded checks whether a summary update is needed
 func UpdateSessionSummaryIfNeeded(client *supabase.Client, sessionID, userID string) error {
+	summaryUpdateState.Lock()
+	if summaryUpdateState.inProgress[sessionID] {
+		summaryUpdateState.Unlock()
+		log.Printf("Session %s: summary update already running, skipping", sessionID)
+		return nil
+	}
+	if lastAttempt, exists := summaryUpdateState.lastAttempt[sessionID]; exists && time.Since(lastAttempt) < summaryCooldown {
+		summaryUpdateState.Unlock()
+		log.Printf("Session %s: summary update cooldown active, skipping", sessionID)
+		return nil
+	}
+	summaryUpdateState.inProgress[sessionID] = true
+	summaryUpdateState.lastAttempt[sessionID] = time.Now()
+	summaryUpdateState.Unlock()
+
+	defer func() {
+		summaryUpdateState.Lock()
+		delete(summaryUpdateState.inProgress, sessionID)
+		summaryUpdateState.Unlock()
+	}()
+
 	// Get last summary update
 	summaryResp, _, err := client.From("session_summaries").
 		Select("last_updated", "", false).

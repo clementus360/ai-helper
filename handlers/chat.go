@@ -300,16 +300,6 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	// Update session metrics asynchronously
-	go func() {
-		if err := supabase.IncrementSessionCounter(supabaseClient, sessionID, "message"); err != nil {
-			config.Logger.Warn("Failed to incemment session counter:", err)
-		}
-		if err := supabase.UpdateSessionSummaryIfNeeded(supabaseClient, sessionID, userId); err != nil {
-			config.Logger.Warn("Failed to update session summary:", err)
-		}
-	}()
-
 	// Send response
 	resp := types.ChatResponse{
 		Success:     true,
@@ -320,6 +310,21 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+
+	// Run post-response metrics asynchronously.
+	go func() {
+		if err := supabase.IncrementSessionCounter(supabaseClient, sessionID, "message"); err != nil {
+			config.Logger.Warn("Failed to incemment session counter:", err)
+		}
+	}()
+
+	// Defer summary generation so user-facing responses are prioritized.
+	go func() {
+		time.Sleep(2 * time.Second)
+		if err := supabase.UpdateSessionSummaryIfNeeded(supabaseClient, sessionID, userId); err != nil {
+			config.Logger.Warn("Failed to update session summary:", err)
+		}
+	}()
 }
 
 func GetMessagesHandler(w http.ResponseWriter, r *http.Request) {
